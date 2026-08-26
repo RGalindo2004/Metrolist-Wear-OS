@@ -7,6 +7,8 @@ package com.metrolist.music.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.TimeText
@@ -95,7 +97,11 @@ fun WearApp() {
                     WearSearchScreen(
                         onSearch = { q ->
                             try {
-                                navController.navigate(SearchRoutes.resultRoute(q))
+                                if (q.startsWith("online/")) {
+                                    navController.navigate(q)
+                                } else {
+                                    navController.navigate(SearchRoutes.resultRoute(q))
+                                }
                             } catch (e: Exception) {
                                 Timber.tag("WearApp").e(e, "Navigation to search result failed")
                             }
@@ -111,11 +117,57 @@ fun WearApp() {
                     WearSearchScreen(
                         onSearch = { q ->
                             try {
-                                navController.navigate(SearchRoutes.resultRoute(q))
+                                if (q.startsWith("online/")) {
+                                    navController.navigate(q)
+                                } else {
+                                    navController.navigate(SearchRoutes.resultRoute(q))
+                                }
                             } catch (e: Exception) {
                                 Timber.tag("WearApp").e(e, "Navigation to search result failed")
                             }
                         },
+                        onItemClick = {
+                            navController.navigate("player") {
+                                popUpTo("player") { inclusive = true }
+                            }
+                        }
+                    )
+                }
+                composable(
+                    route = "online/playlist/{playlistId}",
+                    arguments = listOf(navArgument("playlistId") { type = NavType.StringType })
+                ) { backStackEntry ->
+                    val playlistId = backStackEntry.arguments?.getString("playlistId")!!
+                    WearOnlinePlaylistScreen(
+                        playlistId = playlistId,
+                        onItemClick = {
+                            navController.navigate("player") {
+                                popUpTo("player") { inclusive = true }
+                            }
+                        }
+                    )
+                }
+                composable(
+                    route = "online/album/{albumId}",
+                    arguments = listOf(navArgument("albumId") { type = NavType.StringType })
+                ) { backStackEntry ->
+                    val albumId = backStackEntry.arguments?.getString("albumId")!!
+                    WearOnlineAlbumScreen(
+                        albumId = albumId,
+                        onItemClick = {
+                            navController.navigate("player") {
+                                popUpTo("player") { inclusive = true }
+                            }
+                        }
+                    )
+                }
+                composable(
+                    route = "online/artist/{artistId}",
+                    arguments = listOf(navArgument("artistId") { type = NavType.StringType })
+                ) { backStackEntry ->
+                    val artistId = backStackEntry.arguments?.getString("artistId")!!
+                    WearOnlineArtistScreen(
+                        artistId = artistId,
                         onItemClick = {
                             navController.navigate("player") {
                                 popUpTo("player") { inclusive = true }
@@ -214,22 +266,64 @@ fun WearApp() {
                 }
                 composable("library/albums") {
                     WearLibraryAlbumsScreen(
-                        onAlbumClick = { _ -> 
-                            // TODO: Navigate to album detail
+                        onAlbumClick = { albumId ->
+                            navController.navigate("library/albums/$albumId")
+                        }
+                    )
+                }
+                composable(
+                    route = "library/albums/{albumId}",
+                    arguments = listOf(navArgument("albumId") { type = NavType.StringType })
+                ) { backStackEntry ->
+                    val albumId = backStackEntry.arguments?.getString("albumId")!!
+                    WearAlbumSongsScreen(
+                        albumId = albumId,
+                        onItemClick = {
+                            navController.navigate("player") {
+                                popUpTo("player") { inclusive = true }
+                            }
                         }
                     )
                 }
                 composable("library/artists") {
                     WearLibraryArtistsScreen(
-                        onArtistClick = { _ ->
-                            // TODO: Navigate to artist detail
+                        onArtistClick = { artistId ->
+                            navController.navigate("library/artists/$artistId")
+                        }
+                    )
+                }
+                composable(
+                    route = "library/artists/{artistId}",
+                    arguments = listOf(navArgument("artistId") { type = NavType.StringType })
+                ) { backStackEntry ->
+                    val artistId = backStackEntry.arguments?.getString("artistId")!!
+                    WearArtistSongsScreen(
+                        artistId = artistId,
+                        onItemClick = {
+                            navController.navigate("player") {
+                                popUpTo("player") { inclusive = true }
+                            }
                         }
                     )
                 }
                 composable("library/playlists") {
                     WearLibraryPlaylistsScreen(
-                        onPlaylistClick = { _ ->
-                            // TODO: Navigate to playlist detail
+                        onPlaylistClick = { playlistId ->
+                            navController.navigate("library/playlists/$playlistId")
+                        }
+                    )
+                }
+                composable(
+                    route = "library/playlists/{playlistId}",
+                    arguments = listOf(navArgument("playlistId") { type = NavType.StringType })
+                ) { backStackEntry ->
+                    val playlistId = backStackEntry.arguments?.getString("playlistId")!!
+                    WearPlaylistSongsScreen(
+                        playlistId = playlistId,
+                        onItemClick = {
+                            navController.navigate("player") {
+                                popUpTo("player") { inclusive = true }
+                            }
                         }
                     )
                 }

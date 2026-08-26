@@ -76,7 +76,11 @@ import com.metrolist.music.WearApp
 import com.metrolist.music.constants.*
 import com.metrolist.music.constants.AuthSyncConstants.AUTH_REQUEST_PATH
 import com.metrolist.music.core.R
+import com.metrolist.music.db.entities.Playlist
+import com.metrolist.music.db.entities.PlaylistSong
 import com.metrolist.music.db.entities.Song
+import com.metrolist.music.extensions.toMediaItem
+import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.utils.LoginHelper
 import com.metrolist.music.utils.dataStore
@@ -146,7 +150,6 @@ fun WearSearchScreen(
     onSearch: (String) -> Unit,
     onItemClick: () -> Unit = {}
 ) {
-    // hiltViewModel is a Composable and cannot be wrapped in try-catch directly
     val actualViewModel: OnlineSearchViewModel = hiltViewModel()
 
     val playerConnection = LocalPlayerConnection.current
@@ -180,7 +183,6 @@ fun WearSearchScreen(
         }
     }
 
-    // Auto-launch keyboard if query is empty (initial search)
     LaunchedEffect(Unit) {
         if (actualViewModel.query.isEmpty()) {
             try {
@@ -312,18 +314,33 @@ fun WearSearchScreen(
                     TitleCard(
                         onClick = { 
                             try {
-                                val endpoint = when (item) {
-                                    is SongItem -> WatchEndpoint(videoId = item.id)
-                                    is AlbumItem -> WatchEndpoint(playlistId = item.id)
-                                    is ArtistItem -> WatchEndpoint(playlistId = "VL${item.id}")
-                                    else -> null
-                                }
-                                endpoint?.let { 
-                                    playerConnection?.playQueue(YouTubeQueue(it)) 
-                                    onItemClick()
+                                when (item) {
+                                    is SongItem -> {
+                                        val endpoint = WatchEndpoint(videoId = item.id)
+                                        playerConnection?.playQueue(YouTubeQueue(endpoint)) 
+                                        onItemClick()
+                                    }
+                                    is AlbumItem -> {
+                                        onSearch("online/album/${item.id}")
+                                    }
+                                    is ArtistItem -> {
+                                        onSearch("online/artist/${item.id}")
+                                    }
+                                    is com.metrolist.innertube.models.PlaylistItem -> {
+                                        onSearch("online/playlist/${item.id}")
+                                    }
+                                    is com.metrolist.innertube.models.PodcastItem -> {
+                                        onSearch("online/playlist/${item.id}")
+                                    }
+                                    is com.metrolist.innertube.models.EpisodeItem -> {
+                                        val endpoint = WatchEndpoint(videoId = item.id)
+                                        playerConnection?.playQueue(YouTubeQueue(endpoint))
+                                        onItemClick()
+                                    }
+                                    else -> {}
                                 }
                             } catch (e: Exception) {
-                                Timber.tag("WearSearchScreen").e(e, "Failed to play item")
+                                Timber.tag("WearSearchScreen").e(e, "Failed to handle item click")
                             }
                         },
                         title = { Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -406,11 +423,9 @@ fun WearLoginScreen() {
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var serverUrl by remember { mutableStateOf<String?>(null) }
     
-    // Función mejorada para obtener la IP real del reloj
     fun getLocalIpAddress(): String? {
         return try {
             val interfaces = NetworkInterface.getNetworkInterfaces().toList()
-            // Primero buscar en interfaces de Wi-Fi (wlan)
             val wifiIp = interfaces.filter { it.name.contains("wlan") || it.name.contains("eth") }
                 .flatMap { it.inetAddresses.toList() }
                 .filterIsInstance<Inet4Address>()
@@ -420,14 +435,12 @@ fun WearLoginScreen() {
             
             if (wifiIp != null) return wifiIp
 
-            // Fallback: cualquier IPv4 no local
             interfaces.flatMap { it.inetAddresses.toList() }
                 .filterIsInstance<Inet4Address>()
                 .filter { !it.isLoopbackAddress }
-                .filter { addr -> addr.hostAddress?.startsWith("10.0.") == false } // Evitar IPs de emulador/proxy si hay otras
+                .filter { addr -> addr.hostAddress?.startsWith("10.0.") == false }
                 .mapNotNull { it.hostAddress }
                 .firstOrNull() ?: 
-            // Si no hay de otro tipo, aceptar la del emulador
             interfaces.flatMap { it.inetAddresses.toList() }
                 .filterIsInstance<Inet4Address>()
                 .filter { !it.isLoopbackAddress }
@@ -448,18 +461,15 @@ fun WearLoginScreen() {
     val errorUnknown = stringResource(R.string.error_unknown)
     val loginFailed = stringResource(R.string.login_failed)
 
-    // Lógica del servidor
     DisposableEffect(Unit) {
         var ip = getLocalIpAddress()
         
         var serverSocket: ServerSocket? = null
         val thread = thread {
             try {
-                // Intentar usar el puerto 8080 primero, si no uno al azar
                 serverSocket = try { ServerSocket(8080) } catch (e: Exception) { ServerSocket(0) }
                 val port = serverSocket!!.localPort
                 
-                // Si la IP se detectó tarde, re-intentar
                 if (ip == null) ip = getLocalIpAddress()
                 
                 if (ip != null) {
@@ -527,7 +537,6 @@ fun WearLoginScreen() {
                         reader.read(body)
                         val rawData = String(body)
                         
-                        // Extraer el valor de sync_block correctamente sin cortar en el primer '&' interno
                         val syncBlockParam = rawData.split("&").find { it.startsWith("sync_block=") }
                         val blockValueEncoded = syncBlockParam?.substringAfter("sync_block=") ?: ""
                         val block = URLDecoder.decode(blockValueEncoded, "UTF-8")
@@ -535,8 +544,6 @@ fun WearLoginScreen() {
                         Timber.tag("WearSyncServer").d("Received block: ${block.take(50)}...")
 
                         fun extractValue(key: String): String {
-                            // Buscar la clave ignorando la cantidad de asteriscos (pueden ser 2 o 3)
-                            // Buscamos algo como ***KEY*** = o **KEY** =
                             val regex = """\*+\s*${key}\s*\*+\s*=\s*([^*]+)""".toRegex(RegexOption.IGNORE_CASE)
                             val match = regex.find(block)
                             return match?.groupValues?.get(1)?.trim() ?: ""
@@ -792,7 +799,6 @@ fun WearLibrarySongsScreen(
         when {
             filterLiked -> database.likedSongsByCreateDateAsc().map { it.reversed() }
             filterDownloaded -> database.allSongs().map { it.filter { s -> s.song.isDownloaded }.sortedByDescending { s -> s.song.dateDownload } }
-            // History and all songs will just use all songs for now
             else -> database.songsByCreateDateAsc().map { it.reversed() }
         }
     }.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -988,11 +994,7 @@ fun WearVolumeScreen() {
             ) {
                 Button(
                     onClick = {
-                        audioManager.adjustStreamVolume(
-                            AudioManager.STREAM_MUSIC,
-                            AudioManager.ADJUST_LOWER,
-                            AudioManager.FLAG_SHOW_UI
-                        )
+                        audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
                         currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
                     },
                     colors = ButtonDefaults.secondaryButtonColors(),
@@ -1010,11 +1012,7 @@ fun WearVolumeScreen() {
 
                 Button(
                     onClick = {
-                        audioManager.adjustStreamVolume(
-                            AudioManager.STREAM_MUSIC,
-                            AudioManager.ADJUST_RAISE,
-                            AudioManager.FLAG_SHOW_UI
-                        )
+                        audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
                         currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
                     },
                     colors = ButtonDefaults.secondaryButtonColors(),
@@ -1029,27 +1027,14 @@ fun WearVolumeScreen() {
             Chip(
                 onClick = {
                     if (isMuted) {
-                        audioManager.adjustStreamVolume(
-                            AudioManager.STREAM_MUSIC,
-                            AudioManager.ADJUST_UNMUTE,
-                            AudioManager.FLAG_SHOW_UI
-                        )
+                        audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, AudioManager.FLAG_SHOW_UI)
                     } else {
-                        audioManager.adjustStreamVolume(
-                            AudioManager.STREAM_MUSIC,
-                            AudioManager.ADJUST_MUTE,
-                            AudioManager.FLAG_SHOW_UI
-                        )
+                        audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, AudioManager.FLAG_SHOW_UI)
                     }
                     currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
                 },
                 label = { Text(if (isMuted) stringResource(R.string.unmute) else stringResource(R.string.mute)) },
-                icon = { 
-                    Icon(
-                        painterResource(if (isMuted) R.drawable.volume_up else R.drawable.volume_off), 
-                        contentDescription = null 
-                    ) 
-                },
+                icon = { Icon(painterResource(if (isMuted) R.drawable.volume_up else R.drawable.volume_off), contentDescription = null) },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
             )
         }
@@ -1067,7 +1052,6 @@ fun WearVolumeScreen() {
                             context.startActivity(intent)
                         }
                     } catch (_: Exception) {
-                        // Fallback to Bluetooth settings
                         try {
                             val intent = Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
                             context.startActivity(intent)
@@ -1121,30 +1105,16 @@ fun WearSettingsScreen(
 
     ScalingLazyColumn(
         columnState = columnState,
-        modifier = Modifier
-            .fillMaxSize()
-            .focusRequester(focusRequester)
-            .focusable()
+        modifier = Modifier.fillMaxSize().focusRequester(focusRequester).focusable()
     ) {
-        item {
-            ListHeader {
-                Text(stringResource(R.string.settings))
-            }
-        }
+        item { ListHeader { Text(stringResource(R.string.settings)) } }
 
-        // Account Section
-        item {
-            ListHeader {
-                Text(stringResource(R.string.account), style = MaterialTheme.typography.caption2)
-            }
-        }
+        item { ListHeader { Text(stringResource(R.string.account), style = MaterialTheme.typography.caption2) } }
         item {
             Chip(
                 onClick = {
                     if (accountName != null) {
-                        coroutineScope.launch {
-                            WearApp.forgetAccount(context)
-                        }
+                        coroutineScope.launch { WearApp.forgetAccount(context) }
                     } else {
                         onNavigateToLogin()
                     }
@@ -1156,22 +1126,12 @@ fun WearSettingsScreen(
             )
         }
 
-        // Language Section
-        item {
-            ListHeader {
-                Text(stringResource(R.string.app_language), style = MaterialTheme.typography.caption2)
-            }
-        }
+        item { ListHeader { Text(stringResource(R.string.app_language), style = MaterialTheme.typography.caption2) } }
         item {
             Chip(
                 onClick = onNavigateToLanguage,
                 label = { Text(stringResource(R.string.app_language)) },
-                secondaryLabel = {
-                    Text(
-                        if (appLanguage == SYSTEM_DEFAULT) stringResource(R.string.system_default)
-                        else LanguageCodeToName[appLanguage] ?: appLanguage
-                    )
-                },
+                secondaryLabel = { Text(if (appLanguage == SYSTEM_DEFAULT) stringResource(R.string.system_default) else LanguageCodeToName[appLanguage] ?: appLanguage) },
                 icon = { Icon(painterResource(R.drawable.language), contentDescription = null) },
                 modifier = Modifier.fillMaxWidth()
             )
@@ -1180,12 +1140,7 @@ fun WearSettingsScreen(
             Chip(
                 onClick = onNavigateToContentLanguage,
                 label = { Text(stringResource(R.string.content_language)) },
-                secondaryLabel = {
-                    Text(
-                        if (contentLanguage == SYSTEM_DEFAULT) stringResource(R.string.system_default)
-                        else LanguageCodeToName[contentLanguage] ?: contentLanguage
-                    )
-                },
+                secondaryLabel = { Text(if (contentLanguage == SYSTEM_DEFAULT) stringResource(R.string.system_default) else LanguageCodeToName[contentLanguage] ?: contentLanguage) },
                 icon = { Icon(painterResource(R.drawable.language), contentDescription = null) },
                 modifier = Modifier.fillMaxWidth()
             )
@@ -1194,36 +1149,23 @@ fun WearSettingsScreen(
             Chip(
                 onClick = onNavigateToContentCountry,
                 label = { Text(stringResource(R.string.content_country)) },
-                secondaryLabel = {
-                    Text(
-                        if (contentCountry == SYSTEM_DEFAULT) stringResource(R.string.system_default)
-                        else CountryCodeToName[contentCountry] ?: contentCountry
-                    )
-                },
+                secondaryLabel = { Text(if (contentCountry == SYSTEM_DEFAULT) stringResource(R.string.system_default) else CountryCodeToName[contentCountry] ?: contentCountry) },
                 icon = { Icon(painterResource(R.drawable.language), contentDescription = null) },
                 modifier = Modifier.fillMaxWidth()
             )
         }
 
-        // Playback Section
-        item {
-            ListHeader {
-                Text(stringResource(R.string.player), style = MaterialTheme.typography.caption2)
-            }
-        }
+        item { ListHeader { Text(stringResource(R.string.player), style = MaterialTheme.typography.caption2) } }
         item {
             ToggleChip(
                 checked = crossfadeEnabled,
                 onCheckedChange = { crossfadeEnabled = it },
                 label = { Text(stringResource(R.string.crossfade)) },
                 secondaryLabel = { Text(if (crossfadeEnabled) stringResource(R.string.active_format, crossfadeDuration.toInt()) else stringResource(R.string.crossfade_desc)) },
-                toggleControl = {
-                    Checkbox(checked = crossfadeEnabled)
-                },
+                toggleControl = { Checkbox(checked = crossfadeEnabled) },
                 modifier = Modifier.fillMaxWidth()
             )
         }
-        
         if (crossfadeEnabled) {
             item {
                 Chip(
@@ -1245,9 +1187,7 @@ fun WearSettingsScreen(
                 checked = audioNormalization,
                 onCheckedChange = { audioNormalization = it },
                 label = { Text(stringResource(R.string.audio_normalization)) },
-                toggleControl = {
-                    Checkbox(checked = audioNormalization)
-                },
+                toggleControl = { Checkbox(checked = audioNormalization) },
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -1256,9 +1196,7 @@ fun WearSettingsScreen(
                 checked = stopMusicOnTaskClear,
                 onCheckedChange = { stopMusicOnTaskClear = it },
                 label = { Text(stringResource(R.string.stop_music_on_task_clear)) },
-                toggleControl = {
-                    Checkbox(checked = stopMusicOnTaskClear)
-                },
+                toggleControl = { Checkbox(checked = stopMusicOnTaskClear) },
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -1267,18 +1205,12 @@ fun WearSettingsScreen(
                 checked = skipSilence,
                 onCheckedChange = { skipSilence = it },
                 label = { Text(stringResource(R.string.skip_silence)) },
-                toggleControl = {
-                    Checkbox(checked = skipSilence)
-                },
+                toggleControl = { Checkbox(checked = skipSilence) },
                 modifier = Modifier.fillMaxWidth()
             )
         }
 
-        item {
-            ListHeader {
-                Text(stringResource(R.string.sleep_timer), style = MaterialTheme.typography.caption2)
-            }
-        }
+        item { ListHeader { Text(stringResource(R.string.sleep_timer), style = MaterialTheme.typography.caption2) } }
         item {
             Chip(
                 onClick = {
@@ -1293,11 +1225,7 @@ fun WearSettingsScreen(
             )
         }
 
-        item {
-            ListHeader {
-                Text(stringResource(R.string.history), style = MaterialTheme.typography.caption2)
-            }
-        }
+        item { ListHeader { Text(stringResource(R.string.history), style = MaterialTheme.typography.caption2) } }
         item {
             Chip(
                 onClick = {
@@ -1312,20 +1240,13 @@ fun WearSettingsScreen(
             )
         }
 
-        // Content Section
-        item {
-            ListHeader {
-                Text(stringResource(R.string.content), style = MaterialTheme.typography.caption2)
-            }
-        }
+        item { ListHeader { Text(stringResource(R.string.content), style = MaterialTheme.typography.caption2) } }
         item {
             ToggleChip(
                 checked = hideExplicit,
                 onCheckedChange = { hideExplicit = it },
                 label = { Text(stringResource(R.string.hide_explicit)) },
-                toggleControl = {
-                    Checkbox(checked = hideExplicit)
-                },
+                toggleControl = { Checkbox(checked = hideExplicit) },
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -1334,28 +1255,19 @@ fun WearSettingsScreen(
                 checked = hideVideoSongs,
                 onCheckedChange = { hideVideoSongs = it },
                 label = { Text(stringResource(R.string.hide_video_songs)) },
-                toggleControl = {
-                    Checkbox(checked = hideVideoSongs)
-                },
+                toggleControl = { Checkbox(checked = hideVideoSongs) },
                 modifier = Modifier.fillMaxWidth()
             )
         }
 
-        // Storage Section
-        item {
-            ListHeader {
-                Text(stringResource(R.string.storage), style = MaterialTheme.typography.caption2)
-            }
-        }
+        item { ListHeader { Text(stringResource(R.string.storage), style = MaterialTheme.typography.caption2) } }
         item {
             ToggleChip(
                 checked = enableSongCache,
                 onCheckedChange = { enableSongCache = it },
                 label = { Text(stringResource(R.string.enable_song_cache)) },
                 secondaryLabel = { Text(stringResource(R.string.enable_song_cache_desc)) },
-                toggleControl = {
-                    Checkbox(checked = enableSongCache)
-                },
+                toggleControl = { Checkbox(checked = enableSongCache) },
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -1365,9 +1277,7 @@ fun WearSettingsScreen(
                 onCheckedChange = { autoDownloadOnLike = it },
                 label = { Text(stringResource(R.string.auto_download_on_like)) },
                 secondaryLabel = { Text(stringResource(R.string.auto_download_on_like_desc)) },
-                toggleControl = {
-                    Checkbox(checked = autoDownloadOnLike)
-                },
+                toggleControl = { Checkbox(checked = autoDownloadOnLike) },
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -1375,9 +1285,7 @@ fun WearSettingsScreen(
         item { Spacer(Modifier.height(40.dp)) }
     }
 
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-    }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
 }
 
 @OptIn(ExperimentalHorologistApi::class)
@@ -1395,58 +1303,255 @@ fun WearLanguageScreen(
 
     ScalingLazyColumn(
         columnState = columnState,
-        modifier = Modifier
-            .fillMaxSize()
-            .focusRequester(focusRequester)
-            .focusable()
+        modifier = Modifier.fillMaxSize().focusRequester(focusRequester).focusable()
     ) {
-        item {
-            ListHeader {
-                Text(title)
-            }
-        }
-
+        item { ListHeader { Text(title) } }
         item {
             ToggleChip(
                 checked = selectedValue == SYSTEM_DEFAULT,
-                onCheckedChange = { 
-                    if (it) {
-                        selectedValue = SYSTEM_DEFAULT
-                        onSelected()
-                    }
-                },
+                onCheckedChange = { if (it) { selectedValue = SYSTEM_DEFAULT; onSelected() } },
                 label = { Text(stringResource(R.string.system_default)) },
-                toggleControl = {
-                    RadioButton(selected = selectedValue == SYSTEM_DEFAULT)
-                },
+                toggleControl = { RadioButton(selected = selectedValue == SYSTEM_DEFAULT) },
                 modifier = Modifier.fillMaxWidth()
             )
         }
-
         val sortedOptions = options.entries.sortedBy { it.value }
         items(sortedOptions) { (code, name) ->
             ToggleChip(
                 checked = selectedValue == code,
-                onCheckedChange = { 
-                    if (it) {
-                        selectedValue = code
-                        onSelected()
-                    }
-                },
+                onCheckedChange = { if (it) { selectedValue = code; onSelected() } },
                 label = { Text(name) },
-                toggleControl = {
-                    RadioButton(selected = selectedValue == code)
-                },
+                toggleControl = { RadioButton(selected = selectedValue == code) },
                 modifier = Modifier.fillMaxWidth()
             )
         }
-
-        item {
-            Spacer(modifier = Modifier.height(20.dp))
-        }
+        item { Spacer(modifier = Modifier.height(20.dp)) }
     }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+}
 
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
+@OptIn(ExperimentalHorologistApi::class)
+@Composable
+fun WearPlaylistSongsScreen(playlistId: String, onItemClick: () -> Unit = {}) {
+    val database = LocalDatabase.current
+    val playerConnection = LocalPlayerConnection.current
+    val columnState = rememberResponsiveColumnState()
+    val playlistSongs by remember(playlistId) { database.playlistSongs(playlistId) }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val playlist by remember(playlistId) { database.playlist(playlistId) }.collectAsStateWithLifecycle(initialValue = null)
+
+    ScalingLazyColumn(columnState = columnState, modifier = Modifier.fillMaxSize()) {
+        item { ListHeader { Text(text = playlist?.title ?: stringResource(R.string.playlists)) } }
+        if (playlistSongs.isEmpty()) {
+            item { Text(text = stringResource(R.string.no_results_found), modifier = Modifier.fillMaxWidth().padding(24.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.caption2) }
+        } else {
+            items(playlistSongs) { playlistSong ->
+                val song = playlistSong.song
+                Chip(
+                    onClick = {
+                        playerConnection?.playQueue(
+                            ListQueue(
+                                title = playlist?.title,
+                                items = playlistSongs.map { it.song.toMediaItem() },
+                                startIndex = playlistSongs.indexOf(playlistSong)
+                            )
+                        )
+                        onItemClick()
+                    },
+                    label = { Text(song.song.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    secondaryLabel = { Text(text = song.artists.joinToString { it.name }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    icon = { AsyncImage(model = song.song.thumbnailUrl, contentDescription = null, placeholder = painterResource(R.drawable.music_note), error = painterResource(R.drawable.music_note), modifier = Modifier.size(ChipDefaults.IconSize).clip(CircleShape)) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+        item { Spacer(Modifier.height(40.dp)) }
+    }
+}
+
+@OptIn(ExperimentalHorologistApi::class)
+@Composable
+fun WearAlbumSongsScreen(albumId: String, onItemClick: () -> Unit = {}) {
+    val database = LocalDatabase.current
+    val playerConnection = LocalPlayerConnection.current
+    val columnState = rememberResponsiveColumnState()
+    val albumSongs by remember(albumId) { database.albumSongs(albumId) }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val album by remember(albumId) { database.album(albumId) }.collectAsStateWithLifecycle(initialValue = null)
+
+    ScalingLazyColumn(columnState = columnState, modifier = Modifier.fillMaxSize()) {
+        item { ListHeader { Text(text = album?.title ?: stringResource(R.string.albums)) } }
+        if (albumSongs.isEmpty()) {
+            item { Text(text = stringResource(R.string.no_results_found), modifier = Modifier.fillMaxWidth().padding(24.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.caption2) }
+        } else {
+            items(albumSongs) { song ->
+                Chip(
+                    onClick = {
+                        playerConnection?.playQueue(
+                            ListQueue(
+                                title = album?.title,
+                                items = albumSongs.map { it.toMediaItem() },
+                                startIndex = albumSongs.indexOf(song)
+                            )
+                        )
+                        onItemClick()
+                    },
+                    label = { Text(song.song.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    secondaryLabel = { Text(text = song.artists.joinToString { it.name }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    icon = { AsyncImage(model = song.song.thumbnailUrl, contentDescription = null, placeholder = painterResource(R.drawable.music_note), error = painterResource(R.drawable.music_note), modifier = Modifier.size(ChipDefaults.IconSize).clip(CircleShape)) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+        item { Spacer(Modifier.height(40.dp)) }
+    }
+}
+
+@OptIn(ExperimentalHorologistApi::class)
+@Composable
+fun WearArtistSongsScreen(artistId: String, onItemClick: () -> Unit = {}) {
+    val database = LocalDatabase.current
+    val playerConnection = LocalPlayerConnection.current
+    val columnState = rememberResponsiveColumnState()
+    val artistSongs by remember(artistId) { database.artistSongsByCreateDateAsc(artistId) }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val artist by remember(artistId) { database.artist(artistId) }.collectAsStateWithLifecycle(initialValue = null)
+
+    ScalingLazyColumn(columnState = columnState, modifier = Modifier.fillMaxSize()) {
+        item { ListHeader { Text(text = artist?.artist?.name ?: stringResource(R.string.artists)) } }
+        if (artistSongs.isEmpty()) {
+            item { Text(text = stringResource(R.string.no_results_found), modifier = Modifier.fillMaxWidth().padding(24.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.caption2) }
+        } else {
+            items(artistSongs) { song ->
+                Chip(
+                    onClick = {
+                        playerConnection?.playQueue(
+                            ListQueue(
+                                title = artist?.artist?.name,
+                                items = artistSongs.map { it.toMediaItem() },
+                                startIndex = artistSongs.indexOf(song)
+                            )
+                        )
+                        onItemClick()
+                    },
+                    label = { Text(song.song.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    secondaryLabel = { Text(text = song.artists.joinToString { it.name }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    icon = { AsyncImage(model = song.song.thumbnailUrl, contentDescription = null, placeholder = painterResource(R.drawable.music_note), error = painterResource(R.drawable.music_note), modifier = Modifier.size(ChipDefaults.IconSize).clip(CircleShape)) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+        item { Spacer(Modifier.height(40.dp)) }
+    }
+}
+
+@OptIn(ExperimentalHorologistApi::class)
+@Composable
+fun WearOnlinePlaylistScreen(playlistId: String, onItemClick: () -> Unit = {}) {
+    val playerConnection = LocalPlayerConnection.current
+    val columnState = rememberResponsiveColumnState()
+    val playlistPage by produceState<com.metrolist.innertube.pages.PlaylistPage?>(initialValue = null) { value = YouTube.playlist(playlistId).getOrNull() }
+
+    ScalingLazyColumn(columnState = columnState, modifier = Modifier.fillMaxSize()) {
+        item { ListHeader { Text(text = playlistPage?.playlist?.title ?: stringResource(R.string.playlists)) } }
+        val songs = playlistPage?.songs.orEmpty()
+        if (playlistPage == null) {
+            item { Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
+        } else if (songs.isEmpty()) {
+            item { Text(text = stringResource(R.string.no_results_found), modifier = Modifier.fillMaxWidth().padding(24.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.caption2) }
+        } else {
+            items(songs) { song ->
+                Chip(
+                    onClick = {
+                        playerConnection?.playQueue(
+                            ListQueue(
+                                title = playlistPage?.playlist?.title,
+                                items = songs.map { it.toMediaItem() },
+                                startIndex = songs.indexOf(song)
+                            )
+                        )
+                        onItemClick()
+                    },
+                    label = { Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    secondaryLabel = { Text(text = song.artists.joinToString { it.name }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    icon = { AsyncImage(model = song.thumbnail, contentDescription = null, placeholder = painterResource(R.drawable.music_note), error = painterResource(R.drawable.music_note), modifier = Modifier.size(ChipDefaults.IconSize).clip(CircleShape)) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+        item { Spacer(Modifier.height(40.dp)) }
+    }
+}
+
+@OptIn(ExperimentalHorologistApi::class)
+@Composable
+fun WearOnlineAlbumScreen(albumId: String, onItemClick: () -> Unit = {}) {
+    val playerConnection = LocalPlayerConnection.current
+    val columnState = rememberResponsiveColumnState()
+    val albumPage by produceState<com.metrolist.innertube.pages.AlbumPage?>(initialValue = null) { value = YouTube.album(albumId).getOrNull() }
+
+    ScalingLazyColumn(columnState = columnState, modifier = Modifier.fillMaxSize()) {
+        item { ListHeader { Text(text = albumPage?.album?.title ?: stringResource(R.string.albums)) } }
+        val songs = albumPage?.songs.orEmpty()
+        if (albumPage == null) {
+            item { Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
+        } else if (songs.isEmpty()) {
+            item { Text(text = stringResource(R.string.no_results_found), modifier = Modifier.fillMaxWidth().padding(24.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.caption2) }
+        } else {
+            items(songs) { song ->
+                Chip(
+                    onClick = {
+                        playerConnection?.playQueue(
+                            ListQueue(
+                                title = albumPage?.album?.title,
+                                items = songs.map { it.toMediaItem() },
+                                startIndex = songs.indexOf(song)
+                            )
+                        )
+                        onItemClick()
+                    },
+                    label = { Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    secondaryLabel = { Text(text = song.artists.joinToString { it.name }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    icon = { AsyncImage(model = song.thumbnail, contentDescription = null, placeholder = painterResource(R.drawable.music_note), error = painterResource(R.drawable.music_note), modifier = Modifier.size(ChipDefaults.IconSize).clip(CircleShape)) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+        item { Spacer(Modifier.height(40.dp)) }
+    }
+}
+
+@OptIn(ExperimentalHorologistApi::class)
+@Composable
+fun WearOnlineArtistScreen(artistId: String, onItemClick: () -> Unit = {}) {
+    val playerConnection = LocalPlayerConnection.current
+    val columnState = rememberResponsiveColumnState()
+    val artistPage by produceState<com.metrolist.innertube.pages.ArtistPage?>(initialValue = null) { value = YouTube.artist(artistId).getOrNull() }
+
+    ScalingLazyColumn(columnState = columnState, modifier = Modifier.fillMaxSize()) {
+        item { ListHeader { Text(text = artistPage?.artist?.title ?: stringResource(R.string.artists)) } }
+        val songs = artistPage?.sections?.flatMap { it.items.filterIsInstance<SongItem>() }.orEmpty()
+        if (artistPage == null) {
+            item { Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
+        } else if (songs.isEmpty()) {
+            item { Text(text = stringResource(R.string.no_results_found), modifier = Modifier.fillMaxWidth().padding(24.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.caption2) }
+        } else {
+            items(songs) { song ->
+                Chip(
+                    onClick = {
+                        playerConnection?.playQueue(
+                            ListQueue(
+                                title = artistPage?.artist?.title,
+                                items = songs.map { it.toMediaItem() },
+                                startIndex = songs.indexOf(song)
+                            )
+                        )
+                        onItemClick()
+                    },
+                    label = { Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    secondaryLabel = { Text(text = song.artists.joinToString { it.name }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    icon = { AsyncImage(model = song.thumbnail, contentDescription = null, placeholder = painterResource(R.drawable.music_note), error = painterResource(R.drawable.music_note), modifier = Modifier.size(ChipDefaults.IconSize).clip(CircleShape)) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+        item { Spacer(Modifier.height(40.dp)) }
     }
 }

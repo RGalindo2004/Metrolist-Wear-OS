@@ -42,6 +42,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.exoplayer.offline.Download
@@ -434,6 +435,11 @@ fun WearLoginScreen() {
     var isLoading by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var serverUrl by remember { mutableStateOf<String?>(null) }
+    var pairingCode by remember { mutableStateOf("") }
+    
+    LaunchedEffect(Unit) {
+        pairingCode = (100000..999999).random().toString()
+    }
     
     fun getLocalIpAddress(): String? {
         return try {
@@ -584,6 +590,19 @@ fun WearLoginScreen() {
                         val path = firstLine.substringAfter(" ").substringBefore(" ")
                         val queryParams = if (path.contains("?")) path.substringAfter("?") else ""
                         
+                        if (path.startsWith("/verify_code")) {
+                            val code = queryParams.split("&").find { it.startsWith("code=") }?.substringAfter("=")
+                            val out = client.getOutputStream().bufferedWriter()
+                            if (code == pairingCode) {
+                                out.write("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nOK")
+                            } else {
+                                out.write("HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\n\r\nInvalid Code")
+                            }
+                            out.flush()
+                            client.close()
+                            continue
+                        }
+
                         if (path.startsWith("/sync") || queryParams.contains("sync_block=")) {
                             val syncBlock = queryParams.split("&")
                                 .find { it.startsWith("sync_block=") }
@@ -611,12 +630,13 @@ fun WearLoginScreen() {
                                     p { font-size: 14px; color: #aaa; line-height: 1.5; }
                                     .btn { display: block; width: 100%; padding: 15px; border-radius: 30px; border: none; font-weight: bold; font-size: 16px; cursor: pointer; text-decoration: none; margin-bottom: 10px; transition: transform 0.2s; }
                                     .btn:active { transform: scale(0.98); }
-                                    .btn-google { background: white; color: #000; display: flex; align-items: center; justify-content: center; gap: 10px; }
                                     .btn-primary { background: #BB86FC; color: #000; }
                                     .btn-outline { background: transparent; border: 1px solid #444; color: #fff; }
+                                    .btn-danger { background: #cf6679; color: #000; }
+                                    input[type="number"] { width: 100%; padding: 15px; background: #222; color: #fff; border: 1px solid #444; border-radius: 12px; font-size: 24px; text-align: center; letter-spacing: 5px; margin-bottom: 20px; box-sizing: border-box; }
                                     textarea { width: 100%; height: 180px; background: #222; color: #fff; border: 1px solid #444; border-radius: 12px; padding: 10px; font-size: 13px; box-sizing: border-box; font-family: monospace; margin-bottom: 15px; }
                                     .hidden { display: none; }
-                                    .logo { width: 48px; height: 48px; margin-bottom: 15px; }
+                                    .status { font-size: 12px; color: #cf6679; margin-bottom: 10px; }
                                 </style>
                             </head>
                             <body>
@@ -624,8 +644,17 @@ fun WearLoginScreen() {
                                     <div class="card">
                                         <h3>${wearSyncTitle}</h3>
                                         
-                                        <div id="section-choice">
-                                            <p>Choose your login method to sync with your watch.</p>
+                                        <!-- Step 1: Pairing -->
+                                        <div id="section-pairing">
+                                            <p>Enter the 6-digit code shown on your watch to connect.</p>
+                                            <input type="number" id="pairing-code" placeholder="000000" maxlength="6">
+                                            <div id="pairing-status" class="status hidden">Invalid code. Please try again.</div>
+                                            <button class="btn btn-primary" onclick="verifyCode()">Connect to Watch</button>
+                                        </div>
+
+                                        <!-- Step 2: Choice -->
+                                        <div id="section-choice" class="hidden">
+                                            <p>Successfully connected! Choose your login method.</p>
                                             
                                             <div class="card" style="background: #252525; border: 1px dashed #444;">
                                                 <p style="color: #fff; margin-bottom: 10px;"><strong>Method 1: Semi-Automatic</strong></p>
@@ -637,6 +666,7 @@ fun WearLoginScreen() {
                                             <button class="btn btn-outline" onclick="showManual()">Method 2: Manual Token Entry</button>
                                         </div>
 
+                                        <!-- Step 3: Manual -->
                                         <div id="section-manual" class="hidden">
                                             <p>${loginInstructionStep2}</p>
                                             <form method="POST">
@@ -652,6 +682,19 @@ fun WearLoginScreen() {
                                 <script>
                                     const watchUrl = "${serverUrl}/sync?sync_block=";
                                     
+                                    function verifyCode() {
+                                        const code = document.getElementById('pairing-code').value;
+                                        fetch('/verify_code?code=' + code)
+                                            .then(response => {
+                                                if (response.ok) {
+                                                    document.getElementById('section-pairing').classList.add('hidden');
+                                                    document.getElementById('section-choice').classList.remove('hidden');
+                                                } else {
+                                                    document.getElementById('pairing-status').classList.remove('hidden');
+                                                }
+                                            });
+                                    }
+
                                     function copyBookmarklet() {
                                         const script = "javascript:(function(){location.href='" + watchUrl + "' + encodeURIComponent('**INNERTUBE COOKIE**=' + document.cookie);})();";
                                         navigator.clipboard.writeText(script).then(() => {
@@ -745,6 +788,24 @@ fun WearLoginScreen() {
         }
 
         if (serverUrl != null) {
+            item {
+                Text(
+                    text = "Pairing Code:",
+                    style = MaterialTheme.typography.caption1,
+                    color = MaterialTheme.colors.secondary,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+            item {
+                Text(
+                    text = pairingCode,
+                    style = MaterialTheme.typography.display2.copy(
+                        color = MaterialTheme.colors.primary,
+                        letterSpacing = 4.sp
+                    ),
+                    modifier = Modifier.padding(vertical = 4.dp)
+                )
+            }
             item {
                 val qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=$serverUrl"
                 AsyncImage(

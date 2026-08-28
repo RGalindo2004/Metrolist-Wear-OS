@@ -22,10 +22,14 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.metrolist.music.constants.AppLanguageKey
+import com.metrolist.music.constants.BatterySaverModeKey
+import com.metrolist.music.constants.OffBodyAppCloseKey
 import com.metrolist.music.constants.SYSTEM_DEFAULT
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.listentogether.ListenTogetherManager
@@ -34,6 +38,7 @@ import com.metrolist.music.playback.MusicService
 import com.metrolist.music.playback.MusicService.MusicBinder
 import com.metrolist.music.playback.PlayerConnection
 import com.metrolist.music.ui.WearApp
+import com.metrolist.music.wear.OffBodyMonitor
 import com.metrolist.music.utils.SyncUtils
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.setAppLocale
@@ -64,6 +69,7 @@ class WearMainActivity : ComponentActivity() {
     private var playerConnection: PlayerConnection? = null
     private var playerConnectionSnapshot by mutableStateOf<PlayerConnection?>(null)
     private var isServiceBound = false
+    private var offBodyMonitor: OffBodyMonitor? = null
 
     private val quitReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -109,16 +115,43 @@ class WearMainActivity : ComponentActivity() {
                 }
         }
 
+        lifecycleScope.launch {
+            dataStore.data
+                .map { it[OffBodyAppCloseKey] ?: false }
+                .distinctUntilChanged()
+                .collectLatest { enabled ->
+                    if (enabled) {
+                        if (offBodyMonitor == null) {
+                            offBodyMonitor = OffBodyMonitor(this@WearMainActivity, lifecycleScope) {
+                                Timber.d("OffBodyMonitor: Timeout reached, quitting app")
+                                sendBroadcast(Intent(MusicService.ACTION_QUIT).setPackage(packageName))
+                            }
+                        }
+                        offBodyMonitor?.startMonitoring()
+                    } else {
+                        offBodyMonitor?.stopMonitoring()
+                        offBodyMonitor = null
+                    }
+                }
+        }
+
         // Initialize Listen Together manager
         listenTogetherManager.initialize()
 
         setContent {
+            val batterySaverMode by remember {
+                dataStore.data
+                    .map { it[BatterySaverModeKey] ?: false }
+                    .distinctUntilChanged()
+            }.collectAsStateWithLifecycle(initialValue = false)
+
             CompositionLocalProvider(
                 LocalDatabase provides database,
                 LocalPlayerConnection provides playerConnectionSnapshot,
                 LocalDownloadUtil provides downloadUtil,
                 LocalSyncUtils provides syncUtils,
-                LocalListenTogetherManager provides listenTogetherManager
+                LocalListenTogetherManager provides listenTogetherManager,
+                LocalBatterySaverMode provides batterySaverMode
             ) {
                 WearApp()
             }
@@ -159,6 +192,9 @@ class WearMainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        offBodyMonitor?.stopMonitoring()
+        offBodyMonitor = null
+
         if (isFinishing) {
             listenTogetherManager.disconnect()
         }

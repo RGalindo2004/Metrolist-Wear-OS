@@ -906,4 +906,10 @@
     <string name="kmp_upgrade_warning">Metrolist KMP está en etapa temprana. Puede que funciones estén dañadas, incompletas, o cambiadas sin previo aviso.</string>
     <string name="kmp_upgrade_action">Mejora a KMP</string>
     <string name="playback_queue">Cola de reproducción</string>
+    <string name="off_body_app_close">Cerrar app al quitar de la muñeca</string>
+    <string name="off_body_app_close_desc">Cierra la aplicación tras 1 minuto si el reloj no está en la muñeca para ahorrar batería.</string>
+    <string name="battery_saver_mode">Modo ahorro de batería</string>
+    <string name="battery_saver_mode_desc">Desactiva animaciones y efectos visuales para ahorrar batería.</string>
+    <string name="downloading_progress">Descargando… %1$d/%2$d</string>
+    <string name="downloading_paused">Descarga pausada… %1$d/%2$d</string>
 </resources>

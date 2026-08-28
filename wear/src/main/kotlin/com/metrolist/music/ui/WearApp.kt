@@ -17,6 +17,7 @@ import androidx.wear.compose.material.VignettePosition
 import androidx.wear.compose.navigation.SwipeDismissableNavHost
 import androidx.wear.compose.navigation.composable
 import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
+import com.metrolist.music.LocalBatterySaverMode
 import com.metrolist.music.core.R
 import com.metrolist.music.constants.AppLanguageKey
 import com.metrolist.music.constants.ContentCountryKey
@@ -30,11 +31,16 @@ import timber.log.Timber
 @Composable
 fun WearApp() {
     val navController = rememberSwipeDismissableNavController()
+    val batterySaver = LocalBatterySaverMode.current
     
     MaterialTheme {
         Scaffold(
             timeText = { TimeText() },
-            vignette = { Vignette(vignettePosition = VignettePosition.TopAndBottom) }
+            vignette = { 
+                if (!batterySaver) {
+                    Vignette(vignettePosition = VignettePosition.TopAndBottom)
+                }
+            }
         ) {
             SwipeDismissableNavHost(
                 navController = navController,
@@ -255,8 +261,7 @@ fun WearApp() {
                     )
                 }
                 composable("library/history") {
-                    WearLibrarySongsScreen(
-                        filterHistory = true,
+                    WearHistoryScreen(
                         onItemClick = {
                             navController.navigate("player") {
                                 popUpTo("player") { inclusive = true }

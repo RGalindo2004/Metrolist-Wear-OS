@@ -21,3 +21,4 @@ val LocalListenTogetherManager = staticCompositionLocalOf<ListenTogetherManager?
 val LocalChangelogState = staticCompositionLocalOf<MutableState<Boolean>> { error("No LocalChangelogState provided") }
 val LocalArtistNameAliases = staticCompositionLocalOf<Map<String, String>> { emptyMap() }
 val LocalIsPlayerExpanded = compositionLocalOf { false }
+val LocalBatterySaverMode = compositionLocalOf { false }

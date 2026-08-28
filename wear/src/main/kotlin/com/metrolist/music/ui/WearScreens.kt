@@ -34,6 +34,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
+import androidx.core.net.toUri
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
@@ -43,6 +44,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.exoplayer.offline.Download
+import androidx.media3.exoplayer.offline.DownloadRequest
+import androidx.media3.exoplayer.offline.DownloadService
 import androidx.wear.compose.foundation.lazy.items
 import androidx.wear.compose.material.*
 import androidx.wear.input.RemoteInputIntentHelper
@@ -69,7 +73,9 @@ import com.metrolist.innertube.models.ArtistItem
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.WatchEndpoint
 import com.metrolist.innertube.utils.parseCookieString
+import com.metrolist.music.LocalBatterySaverMode
 import com.metrolist.music.LocalDatabase
+import com.metrolist.music.LocalDownloadUtil
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.LocalSyncUtils
 import com.metrolist.music.WearApp
@@ -80,16 +86,19 @@ import com.metrolist.music.db.entities.Playlist
 import com.metrolist.music.db.entities.PlaylistSong
 import com.metrolist.music.db.entities.Song
 import com.metrolist.music.extensions.toMediaItem
+import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.utils.LoginHelper
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.viewmodels.OnlineSearchViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(ExperimentalHorologistApi::class)
 @Composable
@@ -788,20 +797,28 @@ fun WearLibraryScreen(
 fun WearLibrarySongsScreen(
     filterLiked: Boolean = false,
     filterDownloaded: Boolean = false,
-    filterHistory: Boolean = false,
     onItemClick: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current
+    val downloadUtil = LocalDownloadUtil.current
+    val batterySaver = LocalBatterySaverMode.current
     val columnState = rememberResponsiveColumnState()
     
-    val songs by remember(filterLiked, filterDownloaded, filterHistory) {
+    val songs by remember(filterLiked, filterDownloaded) {
         when {
             filterLiked -> database.likedSongsByCreateDateAsc().map { it.reversed() }
             filterDownloaded -> database.allSongs().map { it.filter { s -> s.song.isDownloaded }.sortedByDescending { s -> s.song.dateDownload } }
             else -> database.songsByCreateDateAsc().map { it.reversed() }
         }
     }.collectAsStateWithLifecycle(initialValue = emptyList())
+
+    val allDownloads by downloadUtil.downloads.collectAsStateWithLifecycle()
+    val totalSongs = songs.size
+    val downloadedCount = remember(songs, allDownloads) {
+        songs.count { it.song.isDownloaded || allDownloads[it.id]?.state == Download.STATE_COMPLETED }
+    }
 
     ScalingLazyColumn(
         columnState = columnState,
@@ -813,9 +830,38 @@ fun WearLibrarySongsScreen(
                     text = when {
                         filterLiked -> stringResource(R.string.liked)
                         filterDownloaded -> stringResource(R.string.offline)
-                        filterHistory -> stringResource(R.string.history)
                         else -> stringResource(R.string.songs)
                     }
+                )
+            }
+        }
+        
+        if (totalSongs > 0 && !filterDownloaded) {
+            item {
+                BulkDownloadButton(
+                    songs = songs.map { BulkDownloadItem(it.id, it.song.title, it.song.isDownloaded) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        if (downloadedCount > 0) {
+            item {
+                Chip(
+                    onClick = {
+                        songs.forEach { song ->
+                            DownloadService.sendRemoveDownload(
+                                context,
+                                ExoDownloadService::class.java,
+                                song.id,
+                                false
+                            )
+                        }
+                    },
+                    label = { Text(stringResource(R.string.clear_all_downloads)) },
+                    icon = { Icon(painterResource(R.drawable.delete), contentDescription = null) },
+                    colors = ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
         }
@@ -846,15 +892,23 @@ fun WearLibrarySongsScreen(
                         )
                     },
                     icon = {
-                        AsyncImage(
-                            model = song.song.thumbnailUrl,
-                            contentDescription = null,
-                            placeholder = painterResource(R.drawable.music_note),
-                            error = painterResource(R.drawable.music_note),
-                            modifier = Modifier
-                                .size(ChipDefaults.IconSize)
-                                .clip(CircleShape)
-                        )
+                        if (!batterySaver) {
+                            AsyncImage(
+                                model = song.song.thumbnailUrl,
+                                contentDescription = null,
+                                placeholder = painterResource(R.drawable.music_note),
+                                error = painterResource(R.drawable.music_note),
+                                modifier = Modifier
+                                    .size(ChipDefaults.IconSize)
+                                    .clip(CircleShape)
+                            )
+                        } else {
+                            Icon(
+                                painter = painterResource(R.drawable.music_note),
+                                contentDescription = null,
+                                modifier = Modifier.size(ChipDefaults.IconSize)
+                            )
+                        }
                     },
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -968,13 +1022,14 @@ fun WearVolumeScreen() {
         mutableIntStateOf(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)) 
     }
     
-    val outputDeviceName = remember {
+    val watchLabel = stringResource(R.string.watch)
+    val outputDeviceName = remember(watchLabel) {
         val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
         val bluetoothDevice = devices.find { 
             it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || 
             it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO 
         }
-        bluetoothDevice?.productName?.toString() ?: context.getString(R.string.watch)
+        bluetoothDevice?.productName?.toString() ?: watchLabel
     }
 
     ScalingLazyColumn(
@@ -1095,6 +1150,8 @@ fun WearSettingsScreen(
     var autoDownloadOnLike by rememberPreference(key = AutoDownloadOnLikeKey, defaultValue = false)
     var historyDuration by rememberPreference(key = HistoryDuration, defaultValue = 30f)
     var stopMusicOnTaskClear by rememberPreference(key = StopMusicOnTaskClearKey, defaultValue = true)
+    var offBodyAppClose by rememberPreference(key = OffBodyAppCloseKey, defaultValue = false)
+    var batterySaverMode by rememberPreference(key = BatterySaverModeKey, defaultValue = false)
     val appLanguage by rememberPreference(key = AppLanguageKey, defaultValue = SYSTEM_DEFAULT)
     val contentLanguage by rememberPreference(key = ContentLanguageKey, defaultValue = SYSTEM_DEFAULT)
     val contentCountry by rememberPreference(key = ContentCountryKey, defaultValue = SYSTEM_DEFAULT)
@@ -1102,6 +1159,14 @@ fun WearSettingsScreen(
     val accountName by remember {
         context.dataStore.data.map { it[AccountNameKey] ?: it[AccountEmailKey] }
     }.collectAsStateWithLifecycle(initialValue = null)
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (!isGranted) {
+            offBodyAppClose = false
+        }
+    }
 
     ScalingLazyColumn(
         columnState = columnState,
@@ -1197,6 +1262,36 @@ fun WearSettingsScreen(
                 onCheckedChange = { stopMusicOnTaskClear = it },
                 label = { Text(stringResource(R.string.stop_music_on_task_clear)) },
                 toggleControl = { Checkbox(checked = stopMusicOnTaskClear) },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        item {
+            ToggleChip(
+                checked = offBodyAppClose,
+                onCheckedChange = {
+                    if (it) {
+                        if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.BODY_SENSORS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                            permissionLauncher.launch(android.Manifest.permission.BODY_SENSORS)
+                        } else {
+                            offBodyAppClose = true
+                        }
+                    } else {
+                        offBodyAppClose = false
+                    }
+                },
+                label = { Text(stringResource(R.string.off_body_app_close)) },
+                secondaryLabel = { Text(stringResource(R.string.off_body_app_close_desc)) },
+                toggleControl = { Checkbox(checked = offBodyAppClose) },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        item {
+            ToggleChip(
+                checked = batterySaverMode,
+                onCheckedChange = { batterySaverMode = it },
+                label = { Text(stringResource(R.string.battery_saver_mode)) },
+                secondaryLabel = { Text(stringResource(R.string.battery_saver_mode_desc)) },
+                toggleControl = { Checkbox(checked = batterySaverMode) },
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -1330,17 +1425,160 @@ fun WearLanguageScreen(
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 }
 
+data class BulkDownloadItem(val id: String, val title: String, val isDownloaded: Boolean = false)
+
+@Composable
+fun BulkDownloadButton(
+    songs: List<BulkDownloadItem>,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val downloadUtil = LocalDownloadUtil.current
+    
+    val allDownloads by downloadUtil.downloads.collectAsStateWithLifecycle()
+    val isManagerPaused by downloadUtil.isPaused.collectAsStateWithLifecycle()
+    
+    val totalSongs = songs.size
+    val downloadedCount = remember(songs, allDownloads) {
+        songs.count { it.isDownloaded || allDownloads[it.id]?.state == Download.STATE_COMPLETED }
+    }
+    
+    val isAnyInQueue = remember(songs, allDownloads) {
+        songs.any { 
+            val s = allDownloads[it.id]?.state
+            s == Download.STATE_DOWNLOADING || s == Download.STATE_QUEUED || s == Download.STATE_RESTARTING || s == Download.STATE_STOPPED
+        }
+    }
+    
+    val isDownloading = remember(songs, allDownloads) {
+        songs.any { 
+            val s = allDownloads[it.id]?.state
+            s == Download.STATE_DOWNLOADING || s == Download.STATE_QUEUED || s == Download.STATE_RESTARTING
+        }
+    }
+
+    if (totalSongs > 0) {
+        Chip(
+            onClick = {
+                when {
+                    isDownloading && !isManagerPaused -> {
+                        DownloadService.sendPauseDownloads(context, ExoDownloadService::class.java, true)
+                    }
+                    isManagerPaused && isAnyInQueue -> {
+                        DownloadService.sendResumeDownloads(context, ExoDownloadService::class.java, true)
+                    }
+                    downloadedCount < totalSongs -> {
+                        Toast.makeText(context, R.string.downloading, Toast.LENGTH_SHORT).show()
+                        coroutineScope.launch(Dispatchers.IO) {
+                            var serviceStarted = false
+                            songs.forEachIndexed { index, song ->
+                                val downloadState = allDownloads[song.id]?.state
+                                if (!song.isDownloaded && downloadState != Download.STATE_COMPLETED && downloadState != Download.STATE_DOWNLOADING && downloadState != Download.STATE_QUEUED) {
+                                    val downloadRequest = DownloadRequest.Builder(song.id, song.id.toUri())
+                                        .setCustomCacheKey(song.id)
+                                        .setData(song.title.toByteArray())
+                                        .build()
+                                    
+                                    if (!serviceStarted) {
+                                        DownloadService.sendAddDownload(
+                                            context,
+                                            ExoDownloadService::class.java,
+                                            downloadRequest,
+                                            true
+                                        )
+                                        serviceStarted = true
+                                    } else {
+                                        downloadUtil.downloadManager.addDownload(downloadRequest)
+                                    }
+                                    if (index % 10 == 0) kotlinx.coroutines.delay(10.milliseconds)
+                                }
+                            }
+                            // If no songs were added but we need to resume? 
+                            // This case is handled by the "else if (isManagerPaused)" block above.
+                        }
+                    }
+                }
+            },
+            label = { 
+                Text(
+                    when {
+                        isManagerPaused && isAnyInQueue -> stringResource(R.string.downloading_paused, downloadedCount, totalSongs)
+                        isDownloading -> stringResource(R.string.downloading_progress, downloadedCount, totalSongs)
+                        downloadedCount == totalSongs -> stringResource(R.string.offline)
+                        else -> stringResource(R.string.action_download)
+                    }
+                )
+            },
+            icon = { 
+                Icon(
+                    painter = painterResource(
+                        when {
+                            downloadedCount == totalSongs -> R.drawable.done
+                            isManagerPaused && isAnyInQueue -> R.drawable.pause
+                            else -> R.drawable.download
+                        }
+                    ), 
+                    contentDescription = null,
+                    tint = if (downloadedCount == totalSongs) MaterialTheme.colors.primary else MaterialTheme.colors.onSurface
+                ) 
+            },
+            modifier = modifier
+        )
+    }
+}
+
 @OptIn(ExperimentalHorologistApi::class)
 @Composable
 fun WearPlaylistSongsScreen(playlistId: String, onItemClick: () -> Unit = {}) {
+    val context = LocalContext.current
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current
+    val downloadUtil = LocalDownloadUtil.current
     val columnState = rememberResponsiveColumnState()
     val playlistSongs by remember(playlistId) { database.playlistSongs(playlistId) }.collectAsStateWithLifecycle(initialValue = emptyList())
     val playlist by remember(playlistId) { database.playlist(playlistId) }.collectAsStateWithLifecycle(initialValue = null)
 
+    val allDownloads by downloadUtil.downloads.collectAsStateWithLifecycle()
+    val totalSongs = playlistSongs.size
+    val downloadedCount = remember(playlistSongs, allDownloads) {
+        playlistSongs.count { it.song.song.isDownloaded || allDownloads[it.song.song.id]?.state == Download.STATE_COMPLETED }
+    }
+
     ScalingLazyColumn(columnState = columnState, modifier = Modifier.fillMaxSize()) {
         item { ListHeader { Text(text = playlist?.title ?: stringResource(R.string.playlists)) } }
+        
+        if (totalSongs > 0) {
+            item {
+                BulkDownloadButton(
+                    songs = playlistSongs.map { BulkDownloadItem(it.song.song.id, it.song.song.title, it.song.song.isDownloaded) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        if (downloadedCount > 0) {
+            item {
+                Chip(
+                    onClick = {
+                        playlistSongs.forEach { playlistSong ->
+                            val songId = playlistSong.song.song.id
+                            DownloadService.sendRemoveDownload(
+                                context,
+                                ExoDownloadService::class.java,
+                                songId,
+                                false
+                            )
+                        }
+                    },
+                    label = { Text(stringResource(R.string.clear_all_downloads)) },
+                    icon = { Icon(painterResource(R.drawable.delete), contentDescription = null) },
+                    colors = ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
         if (playlistSongs.isEmpty()) {
             item { Text(text = stringResource(R.string.no_results_found), modifier = Modifier.fillMaxWidth().padding(24.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.caption2) }
         } else {
@@ -1371,14 +1609,53 @@ fun WearPlaylistSongsScreen(playlistId: String, onItemClick: () -> Unit = {}) {
 @OptIn(ExperimentalHorologistApi::class)
 @Composable
 fun WearAlbumSongsScreen(albumId: String, onItemClick: () -> Unit = {}) {
+    val context = LocalContext.current
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current
+    val downloadUtil = LocalDownloadUtil.current
     val columnState = rememberResponsiveColumnState()
     val albumSongs by remember(albumId) { database.albumSongs(albumId) }.collectAsStateWithLifecycle(initialValue = emptyList())
     val album by remember(albumId) { database.album(albumId) }.collectAsStateWithLifecycle(initialValue = null)
 
+    val allDownloads by downloadUtil.downloads.collectAsStateWithLifecycle()
+    val totalSongs = albumSongs.size
+    val downloadedCount = remember(albumSongs, allDownloads) {
+        albumSongs.count { it.song.isDownloaded || allDownloads[it.id]?.state == Download.STATE_COMPLETED }
+    }
+
     ScalingLazyColumn(columnState = columnState, modifier = Modifier.fillMaxSize()) {
         item { ListHeader { Text(text = album?.title ?: stringResource(R.string.albums)) } }
+        
+        if (totalSongs > 0) {
+            item {
+                BulkDownloadButton(
+                    songs = albumSongs.map { BulkDownloadItem(it.id, it.song.title, it.song.isDownloaded) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        if (downloadedCount > 0) {
+            item {
+                Chip(
+                    onClick = {
+                        albumSongs.forEach { song ->
+                            DownloadService.sendRemoveDownload(
+                                context,
+                                ExoDownloadService::class.java,
+                                song.id,
+                                false
+                            )
+                        }
+                    },
+                    label = { Text(stringResource(R.string.clear_all_downloads)) },
+                    icon = { Icon(painterResource(R.drawable.delete), contentDescription = null) },
+                    colors = ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
         if (albumSongs.isEmpty()) {
             item { Text(text = stringResource(R.string.no_results_found), modifier = Modifier.fillMaxWidth().padding(24.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.caption2) }
         } else {
@@ -1408,14 +1685,53 @@ fun WearAlbumSongsScreen(albumId: String, onItemClick: () -> Unit = {}) {
 @OptIn(ExperimentalHorologistApi::class)
 @Composable
 fun WearArtistSongsScreen(artistId: String, onItemClick: () -> Unit = {}) {
+    val context = LocalContext.current
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current
+    val downloadUtil = LocalDownloadUtil.current
     val columnState = rememberResponsiveColumnState()
     val artistSongs by remember(artistId) { database.artistSongsByCreateDateAsc(artistId) }.collectAsStateWithLifecycle(initialValue = emptyList())
     val artist by remember(artistId) { database.artist(artistId) }.collectAsStateWithLifecycle(initialValue = null)
 
+    val allDownloads by downloadUtil.downloads.collectAsStateWithLifecycle()
+    val totalSongs = artistSongs.size
+    val downloadedCount = remember(artistSongs, allDownloads) {
+        artistSongs.count { it.song.isDownloaded || allDownloads[it.id]?.state == Download.STATE_COMPLETED }
+    }
+
     ScalingLazyColumn(columnState = columnState, modifier = Modifier.fillMaxSize()) {
         item { ListHeader { Text(text = artist?.artist?.name ?: stringResource(R.string.artists)) } }
+        
+        if (totalSongs > 0) {
+            item {
+                BulkDownloadButton(
+                    songs = artistSongs.map { BulkDownloadItem(it.id, it.song.title, it.song.isDownloaded) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        if (downloadedCount > 0) {
+            item {
+                Chip(
+                    onClick = {
+                        artistSongs.forEach { song ->
+                            DownloadService.sendRemoveDownload(
+                                context,
+                                ExoDownloadService::class.java,
+                                song.id,
+                                false
+                            )
+                        }
+                    },
+                    label = { Text(stringResource(R.string.clear_all_downloads)) },
+                    icon = { Icon(painterResource(R.drawable.delete), contentDescription = null) },
+                    colors = ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
         if (artistSongs.isEmpty()) {
             item { Text(text = stringResource(R.string.no_results_found), modifier = Modifier.fillMaxWidth().padding(24.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.caption2) }
         } else {
@@ -1444,14 +1760,146 @@ fun WearArtistSongsScreen(artistId: String, onItemClick: () -> Unit = {}) {
 
 @OptIn(ExperimentalHorologistApi::class)
 @Composable
-fun WearOnlinePlaylistScreen(playlistId: String, onItemClick: () -> Unit = {}) {
+fun WearHistoryScreen(onItemClick: () -> Unit = {}) {
+    val context = LocalContext.current
     val playerConnection = LocalPlayerConnection.current
+    val downloadUtil = LocalDownloadUtil.current
+    val columnState = rememberResponsiveColumnState()
+    val allDownloads by downloadUtil.downloads.collectAsStateWithLifecycle()
+
+    val historyPage by produceState<com.metrolist.innertube.pages.HistoryPage?>(initialValue = null) {
+        value = YouTube.musicHistory().getOrNull()
+    }
+
+    val songs = remember(historyPage) {
+        historyPage?.sections?.flatMap { it.songs }.orEmpty()
+    }
+
+    val totalSongs = songs.size
+    val downloadedCount = remember(songs, allDownloads) {
+        songs.count { allDownloads[it.id]?.state == Download.STATE_COMPLETED }
+    }
+
+    ScalingLazyColumn(columnState = columnState, modifier = Modifier.fillMaxSize()) {
+        item { ListHeader { Text(text = stringResource(R.string.history)) } }
+
+        if (totalSongs > 0) {
+            item {
+                BulkDownloadButton(
+                    songs = songs.map { BulkDownloadItem(it.id, it.title, false) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        if (downloadedCount > 0) {
+            item {
+                Chip(
+                    onClick = {
+                        songs.forEach { song ->
+                            DownloadService.sendRemoveDownload(
+                                context,
+                                ExoDownloadService::class.java,
+                                song.id,
+                                false
+                            )
+                        }
+                    },
+                    label = { Text(stringResource(R.string.clear_all_downloads)) },
+                    icon = { Icon(painterResource(R.drawable.delete), contentDescription = null) },
+                    colors = ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        if (historyPage == null) {
+            item { Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
+        } else if (songs.isEmpty()) {
+            item { Text(text = stringResource(R.string.no_results_found), modifier = Modifier.fillMaxWidth().padding(24.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.caption2) }
+        } else {
+            items(songs) { song ->
+                Chip(
+                    onClick = {
+                        playerConnection?.playQueue(YouTubeQueue(WatchEndpoint(videoId = song.id)))
+                        onItemClick()
+                    },
+                    label = { Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    secondaryLabel = { Text(text = song.artists.joinToString { it.name }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    icon = {
+                        if (!LocalBatterySaverMode.current) {
+                            AsyncImage(
+                                model = song.thumbnail,
+                                contentDescription = null,
+                                placeholder = painterResource(R.drawable.music_note),
+                                error = painterResource(R.drawable.music_note),
+                                modifier = Modifier.size(ChipDefaults.IconSize).clip(CircleShape)
+                            )
+                        } else {
+                            Icon(
+                                painter = painterResource(R.drawable.music_note),
+                                contentDescription = null,
+                                modifier = Modifier.size(ChipDefaults.IconSize)
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+        item { Spacer(Modifier.height(40.dp)) }
+    }
+}
+
+@OptIn(ExperimentalHorologistApi::class)
+@Composable
+fun WearOnlinePlaylistScreen(playlistId: String, onItemClick: () -> Unit = {}) {
+    val context = LocalContext.current
+    val playerConnection = LocalPlayerConnection.current
+    val downloadUtil = LocalDownloadUtil.current
     val columnState = rememberResponsiveColumnState()
     val playlistPage by produceState<com.metrolist.innertube.pages.PlaylistPage?>(initialValue = null) { value = YouTube.playlist(playlistId).getOrNull() }
 
+    val allDownloads by downloadUtil.downloads.collectAsStateWithLifecycle()
+    val songs = playlistPage?.songs.orEmpty()
+    val totalSongs = songs.size
+    val downloadedCount = remember(songs, allDownloads) {
+        songs.count { allDownloads[it.id]?.state == Download.STATE_COMPLETED }
+    }
+
     ScalingLazyColumn(columnState = columnState, modifier = Modifier.fillMaxSize()) {
         item { ListHeader { Text(text = playlistPage?.playlist?.title ?: stringResource(R.string.playlists)) } }
-        val songs = playlistPage?.songs.orEmpty()
+        
+        if (totalSongs > 0) {
+            item {
+                BulkDownloadButton(
+                    songs = songs.map { BulkDownloadItem(it.id, it.title, false) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        if (downloadedCount > 0) {
+            item {
+                Chip(
+                    onClick = {
+                        songs.forEach { song ->
+                            DownloadService.sendRemoveDownload(
+                                context,
+                                ExoDownloadService::class.java,
+                                song.id,
+                                false
+                            )
+                        }
+                    },
+                    label = { Text(stringResource(R.string.clear_all_downloads)) },
+                    icon = { Icon(painterResource(R.drawable.delete), contentDescription = null) },
+                    colors = ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
         if (playlistPage == null) {
             item { Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
         } else if (songs.isEmpty()) {
@@ -1483,13 +1931,52 @@ fun WearOnlinePlaylistScreen(playlistId: String, onItemClick: () -> Unit = {}) {
 @OptIn(ExperimentalHorologistApi::class)
 @Composable
 fun WearOnlineAlbumScreen(albumId: String, onItemClick: () -> Unit = {}) {
+    val context = LocalContext.current
     val playerConnection = LocalPlayerConnection.current
+    val downloadUtil = LocalDownloadUtil.current
     val columnState = rememberResponsiveColumnState()
     val albumPage by produceState<com.metrolist.innertube.pages.AlbumPage?>(initialValue = null) { value = YouTube.album(albumId).getOrNull() }
 
+    val allDownloads by downloadUtil.downloads.collectAsStateWithLifecycle()
+    val songs = albumPage?.songs.orEmpty()
+    val totalSongs = songs.size
+    val downloadedCount = remember(songs, allDownloads) {
+        songs.count { allDownloads[it.id]?.state == Download.STATE_COMPLETED }
+    }
+
     ScalingLazyColumn(columnState = columnState, modifier = Modifier.fillMaxSize()) {
         item { ListHeader { Text(text = albumPage?.album?.title ?: stringResource(R.string.albums)) } }
-        val songs = albumPage?.songs.orEmpty()
+        
+        if (totalSongs > 0) {
+            item {
+                BulkDownloadButton(
+                    songs = songs.map { BulkDownloadItem(it.id, it.title, false) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        if (downloadedCount > 0) {
+            item {
+                Chip(
+                    onClick = {
+                        songs.forEach { song ->
+                            DownloadService.sendRemoveDownload(
+                                context,
+                                ExoDownloadService::class.java,
+                                song.id,
+                                false
+                            )
+                        }
+                    },
+                    label = { Text(stringResource(R.string.clear_all_downloads)) },
+                    icon = { Icon(painterResource(R.drawable.delete), contentDescription = null) },
+                    colors = ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
         if (albumPage == null) {
             item { Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
         } else if (songs.isEmpty()) {
@@ -1521,13 +2008,52 @@ fun WearOnlineAlbumScreen(albumId: String, onItemClick: () -> Unit = {}) {
 @OptIn(ExperimentalHorologistApi::class)
 @Composable
 fun WearOnlineArtistScreen(artistId: String, onItemClick: () -> Unit = {}) {
+    val context = LocalContext.current
     val playerConnection = LocalPlayerConnection.current
+    val downloadUtil = LocalDownloadUtil.current
     val columnState = rememberResponsiveColumnState()
     val artistPage by produceState<com.metrolist.innertube.pages.ArtistPage?>(initialValue = null) { value = YouTube.artist(artistId).getOrNull() }
 
+    val allDownloads by downloadUtil.downloads.collectAsStateWithLifecycle()
+    val songs = artistPage?.sections?.flatMap { it.items.filterIsInstance<SongItem>() }.orEmpty()
+    val totalSongs = songs.size
+    val downloadedCount = remember(songs, allDownloads) {
+        songs.count { allDownloads[it.id]?.state == Download.STATE_COMPLETED }
+    }
+
     ScalingLazyColumn(columnState = columnState, modifier = Modifier.fillMaxSize()) {
         item { ListHeader { Text(text = artistPage?.artist?.title ?: stringResource(R.string.artists)) } }
-        val songs = artistPage?.sections?.flatMap { it.items.filterIsInstance<SongItem>() }.orEmpty()
+        
+        if (totalSongs > 0) {
+            item {
+                BulkDownloadButton(
+                    songs = songs.map { BulkDownloadItem(it.id, it.title, false) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        if (downloadedCount > 0) {
+            item {
+                Chip(
+                    onClick = {
+                        songs.forEach { song ->
+                            DownloadService.sendRemoveDownload(
+                                context,
+                                ExoDownloadService::class.java,
+                                song.id,
+                                false
+                            )
+                        }
+                    },
+                    label = { Text(stringResource(R.string.clear_all_downloads)) },
+                    icon = { Icon(painterResource(R.drawable.delete), contentDescription = null) },
+                    colors = ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
         if (artistPage == null) {
             item { Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
         } else if (songs.isEmpty()) {

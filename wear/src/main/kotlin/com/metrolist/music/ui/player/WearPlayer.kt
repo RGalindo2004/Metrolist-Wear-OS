@@ -40,6 +40,7 @@ import com.google.android.horologist.compose.layout.rememberResponsiveColumnStat
 import com.google.android.horologist.media.ui.components.PlayPauseButton
 import com.google.android.horologist.media.ui.components.controls.SeekToNextButton
 import com.google.android.horologist.media.ui.components.controls.SeekToPreviousButton
+import com.metrolist.music.LocalBatterySaverMode
 import com.metrolist.music.LocalDownloadUtil
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.core.R
@@ -124,6 +125,7 @@ fun NowPlayingScreen(
     onNavigateToVolume: () -> Unit
 ) {
     val context = LocalContext.current
+    val batterySaver = LocalBatterySaverMode.current
     
     val currentSong by playerConnection.currentSong.collectAsStateWithLifecycle()
     
@@ -136,12 +138,12 @@ fun NowPlayingScreen(
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
 
-    LaunchedEffect(isPlaying) {
+    LaunchedEffect(isPlaying, batterySaver) {
         if (isPlaying) {
             while (isActive) {
                 position = playerConnection.player.currentPosition
                 playerConnection.player.duration.takeIf { it > 0 }?.let { duration = it }
-                delay(500)
+                delay(if (batterySaver) 2000 else 500)
             }
         }
     }
@@ -153,31 +155,36 @@ fun NowPlayingScreen(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        // Background Album Art with Scrim
-        Box(modifier = Modifier.fillMaxSize()) {
-            metadata?.thumbnailUrl?.let { url ->
-                AsyncImage(
-                    model = url,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
+        // Background Album Art with Scrim (Disabled in Battery Saver)
+        if (!batterySaver) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                metadata?.thumbnailUrl?.let { url ->
+                    AsyncImage(
+                        model = url,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .alpha(0.35f)
+                    )
+                }
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .alpha(0.35f)
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Black.copy(alpha = 0.4f),
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.7f)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Black.copy(alpha = 0.4f),
+                                    Color.Transparent,
+                                    Color.Black.copy(alpha = 0.7f)
+                                )
                             )
                         )
-                    )
-            )
+                )
+            }
+        } else {
+            // Simple black background in battery saver
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black))
         }
 
         // Integrated Progress Ring
@@ -211,7 +218,7 @@ fun NowPlayingScreen(
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .basicMarquee(iterations = Int.MAX_VALUE)
+                        .then(if (batterySaver) Modifier else Modifier.basicMarquee(iterations = Int.MAX_VALUE))
                 )
                 
                 Text(
@@ -224,7 +231,7 @@ fun NowPlayingScreen(
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .basicMarquee(iterations = Int.MAX_VALUE)
+                        .then(if (batterySaver) Modifier else Modifier.basicMarquee(iterations = Int.MAX_VALUE))
                 )
             }
 
@@ -513,8 +520,9 @@ fun QueueScreen(playerConnection: com.metrolist.music.playback.PlayerConnection)
                     ) 
                 },
                 secondaryLabel = {
+                    val nowPlayingPrefix = if (isCurrent) "${stringResource(R.string.now_playing)} • " else ""
                     Text(
-                        text = (if (isCurrent) "Reproduciendo ahora • " else "") + 
+                        text = nowPlayingPrefix + 
                                (metadata?.artists?.joinToString { it.name } ?: stringResource(R.string.widget_recognizer_unknown_artist)),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,

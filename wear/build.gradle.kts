@@ -72,6 +72,7 @@ dependencies {
     implementation(libs.horologist.media.ui)
     implementation(libs.horologist.layout)
     implementation(libs.wear.input)
+    implementation(libs.health.services)
     implementation(libs.play.services.wearable)
     implementation(libs.play.services.coroutines)
 

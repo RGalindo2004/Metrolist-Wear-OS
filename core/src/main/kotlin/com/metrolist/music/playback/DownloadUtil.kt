@@ -67,6 +67,7 @@ constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val downloads = MutableStateFlow<Map<String, Download>>(emptyMap())
+    val isPaused = MutableStateFlow(false)
 
     private val dataSourceFactory =
         ResolvingDataSource.Factory(
@@ -265,11 +266,16 @@ constructor(
                             Timber.tag(TAG).e(error, "Failed to update database for removed download $downloadId, keeping in-memory entry")
                         }
                     }
+
+                    override fun onDownloadsPausedChanged(downloadManager: DownloadManager, downloadsPaused: Boolean) {
+                        isPaused.value = downloadsPaused
+                    }
                 }
             )
         }
 
     init {
+        isPaused.value = downloadManager.downloadsPaused
         val result = mutableMapOf<String, Download>()
         val cursor = downloadManager.downloadIndex.getDownloads()
         while (cursor.moveToNext()) {

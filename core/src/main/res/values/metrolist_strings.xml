@@ -984,4 +984,10 @@
     <string name="wear_login_instruction">Log in on your phone and copy your cookie. Then tap below.</string>
     <string name="enter_cookie">Enter Cookie</string>
     <string name="login_qr_code_desc">Scan the QR code to log in to YouTube Music</string>
+    <string name="off_body_app_close">Close app when off-wrist</string>
+    <string name="off_body_app_close_desc">Close the app after 1 minute if the watch is not on your wrist to save battery.</string>
+    <string name="battery_saver_mode">Battery saver mode</string>
+    <string name="battery_saver_mode_desc">Disable animations and visual effects to save battery.</string>
+    <string name="downloading_progress">Downloading… %1$d/%2$d</string>
+    <string name="downloading_paused">Downloading paused… %1$d/%2$d</string>
 </resources>

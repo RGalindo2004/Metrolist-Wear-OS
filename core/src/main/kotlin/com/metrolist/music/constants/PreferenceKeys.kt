@@ -265,6 +265,9 @@ val ShowTopPlaylistKey = booleanPreferencesKey("show_top_playlist")
 val ShowCachedPlaylistKey = booleanPreferencesKey("show_cached_playlist")
 val ShowUploadedPlaylistKey = booleanPreferencesKey("show_uploaded_playlist")
 
+val OffBodyAppCloseKey = booleanPreferencesKey("offBodyAppClose")
+val BatterySaverModeKey = booleanPreferencesKey("batterySaverMode")
+
 enum class LibraryViewType {
     LIST,
     GRID,

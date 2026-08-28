@@ -651,6 +651,17 @@ class MusicService :
                     actionFactory: MediaNotification.ActionFactory,
                     onNotificationChangedCallback: MediaNotification.Provider.Callback,
                 ): MediaNotification {
+                    if (isWatch) {
+                        val notification =
+                            NotificationCompat.Builder(this@MusicService, CHANNEL_ID)
+                                .setSmallIcon(R.drawable.small_icon)
+                                .setPriority(NotificationCompat.PRIORITY_MIN)
+                                .setSilent(true)
+                                .build()
+                        latestMediaNotification = notification
+                        return MediaNotification(NOTIFICATION_ID, notification)
+                    }
+
                     val trackingCallback =
                         MediaNotification.Provider.Callback { notification ->
                             latestMediaNotification = notification.notification
@@ -675,7 +686,11 @@ class MusicService :
                 ): Boolean = defaultMediaNotificationProvider.handleCustomCommand(session, action, extras)
 
                 override fun getNotificationChannelInfo(): MediaNotification.Provider.NotificationChannelInfo =
-                    defaultMediaNotificationProvider.notificationChannelInfo
+                    if (isWatch) {
+                        MediaNotification.Provider.NotificationChannelInfo(CHANNEL_ID, getString(R.string.music_player))
+                    } else {
+                        defaultMediaNotificationProvider.notificationChannelInfo
+                    }
             },
         )
         player = createExoPlayer(prefs = startupPrefs!!)
@@ -4161,7 +4176,7 @@ class MusicService :
             NotificationChannel(
                 CHANNEL_ID,
                 getString(R.string.music_player),
-                NotificationManager.IMPORTANCE_LOW,
+                if (isWatch) NotificationManager.IMPORTANCE_MIN else NotificationManager.IMPORTANCE_LOW,
             ),
         )
     }
@@ -4314,7 +4329,7 @@ class MusicService :
     override fun onBind(intent: Intent?) = super.onBind(intent) ?: binder
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        if (dataStore.get(StopMusicOnTaskClearKey, true)) {
+        if (isWatch || dataStore.get(StopMusicOnTaskClearKey, true)) {
             if (!::player.isInitialized) {
                 stopSelf()
                 return

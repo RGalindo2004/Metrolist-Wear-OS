@@ -424,6 +424,8 @@ fun WearSearchScreen(
     }
 }
 
+private enum class LoginMode { Pairing, Manual }
+
 @OptIn(ExperimentalHorologistApi::class)
 @Composable
 fun WearLoginScreen() {
@@ -432,11 +434,32 @@ fun WearLoginScreen() {
     val columnState = rememberResponsiveColumnState()
     val focusRequester = remember { FocusRequester() }
 
+    var loginMode by remember { mutableStateOf<LoginMode?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var serverUrl by remember { mutableStateOf<String?>(null) }
     var pairingCode by remember { mutableStateOf("") }
     
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val resultsBundle = RemoteInput.getResultsFromIntent(result.data)
+            val token = resultsBundle?.getCharSequence("token")?.toString()
+            if (!token.isNullOrBlank()) {
+                coroutineScope.launch {
+                    try {
+                        statusMessage = "Processing..."
+                        isLoading = true
+                        val finalVisitorData = YouTube.visitorData().getOrNull().orEmpty()
+                        LoginHelper.finalizeLogin(context, token, finalVisitorData, "", "0")
+                    } catch (e: Exception) {
+                        statusMessage = "Error: ${e.message}"
+                        isLoading = false
+                    }
+                }
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         pairingCode = (100000..999999).random().toString()
     }
@@ -481,7 +504,9 @@ fun WearLoginScreen() {
     val loginOnPhone = stringResource(R.string.login_on_phone)
     val openingLoginOnPhone = stringResource(R.string.opening_login_on_phone)
 
-    DisposableEffect(Unit) {
+    DisposableEffect(loginMode) {
+        if (loginMode != LoginMode.Pairing) return@DisposableEffect onDispose {}
+        
         var ip = getLocalIpAddress()
         var serverSocket: ServerSocket? = null
 
@@ -752,123 +777,166 @@ fun WearLoginScreen() {
     ) {
         item { ListHeader { Text(stringResource(R.string.login)) } }
 
-        item {
-            Chip(
-                onClick = {
-                    if (serverUrl == null) {
-                        Toast.makeText(context, errorNoWifiIp, Toast.LENGTH_LONG).show()
-                    }
-                    
-                    coroutineScope.launch {
-                        try {
-                            val remoteActivityHelper = RemoteActivityHelper(context, ContextCompat.getMainExecutor(context))
-                            val urlToOpen = serverUrl ?: "https://music.youtube.com"
-                            
-                            Toast.makeText(context, openingLoginOnPhone, Toast.LENGTH_SHORT).show()
-                            
-                            remoteActivityHelper.startRemoteActivity(
-                                Intent(Intent.ACTION_VIEW)
-                                    .setData(urlToOpen.toUri())
-                                    .addCategory(Intent.CATEGORY_BROWSABLE),
-                                null
-                            ).await()
-                            
-                            Timber.tag("WearLogin").d("Remote activity started for URL: $urlToOpen")
-                        } catch (e: Exception) {
-                            Timber.tag("WearLogin").e(e, "Failed to start remote activity")
-                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+        if (loginMode == null) {
+            item {
+                Chip(
+                    onClick = { loginMode = LoginMode.Pairing },
+                    label = { Text("Pairing Code") },
+                    secondaryLabel = { Text("TV style login") },
+                    icon = { Icon(painterResource(R.drawable.speed), null) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            item {
+                Chip(
+                    onClick = { loginMode = LoginMode.Manual },
+                    label = { Text("Manual Token") },
+                    secondaryLabel = { Text("Copy/Paste block") },
+                    icon = { Icon(painterResource(R.drawable.token), null) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        } else if (loginMode == LoginMode.Pairing) {
+            item {
+                Chip(
+                    onClick = {
+                        if (serverUrl == null) {
+                            Toast.makeText(context, errorNoWifiIp, Toast.LENGTH_LONG).show()
+                        }
+                        
+                        coroutineScope.launch {
+                            try {
+                                val remoteActivityHelper = RemoteActivityHelper(context, ContextCompat.getMainExecutor(context))
+                                val urlToOpen = serverUrl ?: "https://music.youtube.com"
+                                
+                                Toast.makeText(context, openingLoginOnPhone, Toast.LENGTH_SHORT).show()
+                                
+                                remoteActivityHelper.startRemoteActivity(
+                                    Intent(Intent.ACTION_VIEW)
+                                        .setData(urlToOpen.toUri())
+                                        .addCategory(Intent.CATEGORY_BROWSABLE),
+                                    null
+                                ).await()
+                                
+                                Timber.tag("WearLogin").d("Remote activity started for URL: $urlToOpen")
+                            } catch (e: Exception) {
+                                Timber.tag("WearLogin").e(e, "Failed to start remote activity")
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    label = { Text(loginOnPhone) },
+                    icon = { Icon(painterResource(R.drawable.login), contentDescription = null) },
+                    colors = ChipDefaults.primaryChipColors(),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                )
+            }
+
+            if (serverUrl != null) {
+                item {
+                    Text(
+                        text = "Pairing Code:",
+                        style = MaterialTheme.typography.caption1,
+                        color = MaterialTheme.colors.secondary,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+                item {
+                    Text(
+                        text = pairingCode,
+                        style = MaterialTheme.typography.display2.copy(
+                            color = MaterialTheme.colors.primary,
+                            letterSpacing = 4.sp
+                        ),
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+                }
+                item {
+                    val qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=$serverUrl"
+                    AsyncImage(
+                        model = qrUrl,
+                        contentDescription = "QR Code",
+                        modifier = Modifier.size(110.dp).padding(4.dp).clip(RoundedCornerShape(12.dp)).background(androidx.compose.ui.graphics.Color.White)
+                    )
+                }
+                item {
+                    Text(
+                        text = serverUrl!!,
+                        style = MaterialTheme.typography.caption2,
+                        color = MaterialTheme.colors.primary,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            } else {
+                item {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth().padding(16.dp)
+                    ) {
+                        if (statusMessage == errorNoWifiIp) {
+                            Icon(
+                                painter = painterResource(R.drawable.error),
+                                contentDescription = null,
+                                tint = MaterialTheme.colors.error,
+                                modifier = Modifier.size(32.dp)
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = statusMessage!!,
+                                style = MaterialTheme.typography.caption2,
+                                color = MaterialTheme.colors.error,
+                                textAlign = TextAlign.Center
+                            )
+                        } else {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = statusMessage ?: stringResource(R.string.starting_server),
+                                style = MaterialTheme.typography.caption2,
+                                textAlign = TextAlign.Center
+                            )
                         }
                     }
-                },
-                label = { Text(loginOnPhone) },
-                icon = { Icon(painterResource(R.drawable.login), contentDescription = null) },
-                colors = ChipDefaults.primaryChipColors(),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
-            )
-        }
-
-        if (serverUrl != null) {
+                }
+            }
+            
             item {
-                Text(
-                    text = "Pairing Code:",
-                    style = MaterialTheme.typography.caption1,
-                    color = MaterialTheme.colors.secondary,
+                CompactChip(
+                    onClick = { loginMode = null },
+                    label = { Text("Back") },
                     modifier = Modifier.padding(top = 8.dp)
                 )
             }
+        } else if (loginMode == LoginMode.Manual) {
             item {
                 Text(
-                    text = pairingCode,
-                    style = MaterialTheme.typography.display2.copy(
-                        color = MaterialTheme.colors.primary,
-                        letterSpacing = 4.sp
-                    ),
-                    modifier = Modifier.padding(vertical = 4.dp)
-                )
-            }
-            item {
-                val qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=$serverUrl"
-                AsyncImage(
-                    model = qrUrl,
-                    contentDescription = "QR Code",
-                    modifier = Modifier.size(110.dp).padding(4.dp).clip(RoundedCornerShape(12.dp)).background(androidx.compose.ui.graphics.Color.White)
-                )
-            }
-            item {
-                Text(
-                    text = stringResource(R.string.wifi_warning).uppercase(),
-                    style = MaterialTheme.typography.caption2,
-                    color = MaterialTheme.colors.error,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 12.dp)
-                )
-            }
-            item {
-                Text(
-                    text = stringResource(R.string.login_instruction_step1) + "\n" + stringResource(R.string.login_instruction_step2),
+                    text = "Paste the token block from your phone.",
                     style = MaterialTheme.typography.caption2,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 12.dp)
+                    modifier = Modifier.padding(16.dp)
                 )
             }
             item {
-                Text(
-                    text = serverUrl!!,
-                    style = MaterialTheme.typography.caption2,
-                    color = MaterialTheme.colors.primary,
-                    modifier = Modifier.padding(top = 4.dp)
+                Chip(
+                    onClick = {
+                        val remoteInput = RemoteInput.Builder("token")
+                            .setLabel("Paste Token Block")
+                            .build()
+                        val intent = RemoteInputIntentHelper.createActionRemoteInputIntent()
+                        RemoteInputIntentHelper.putRemoteInputsExtra(intent, listOf(remoteInput))
+                        launcher.launch(intent)
+                    },
+                    label = { Text("Enter Token Block") },
+                    icon = { Icon(painterResource(R.drawable.edit), null) },
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
-        } else {
             item {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.fillMaxWidth().padding(16.dp)
-                ) {
-                    if (statusMessage == errorNoWifiIp) {
-                        Icon(
-                            painter = painterResource(R.drawable.error),
-                            contentDescription = null,
-                            tint = MaterialTheme.colors.error,
-                            modifier = Modifier.size(32.dp)
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = statusMessage!!,
-                            style = MaterialTheme.typography.caption2,
-                            color = MaterialTheme.colors.error,
-                            textAlign = TextAlign.Center
-                        )
-                    } else {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = statusMessage ?: stringResource(R.string.starting_server),
-                            style = MaterialTheme.typography.caption2,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
+                CompactChip(
+                    onClick = { loginMode = null },
+                    label = { Text("Back") },
+                    modifier = Modifier.padding(top = 16.dp)
+                )
             }
         }
         
@@ -879,6 +947,37 @@ fun WearLoginScreen() {
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
+    }
+}
+
+private suspend fun finalizeManualLogin(
+    block: String,
+    context: android.content.Context,
+    setStatus: (String) -> Unit,
+    setLoading: (Boolean) -> Unit
+) {
+    fun extractValue(key: String): String {
+        val regex = """\*+\s*${key}\s*\*+\s*=\s*([^*]+)""".toRegex(RegexOption.IGNORE_CASE)
+        val match = regex.find(block)
+        return match?.groupValues?.get(1)?.trim() ?: ""
+    }
+
+    val cookie = extractValue("INNERTUBE COOKIE")
+    val visitorData = extractValue("VISITOR DATA")
+    val dataSyncId = extractValue("DATASYNC ID")
+
+    if (cookie.isNotBlank()) {
+        try {
+            setStatus("Processing...")
+            setLoading(true)
+            val finalVisitorData = visitorData.ifBlank { YouTube.visitorData().getOrNull().orEmpty() }
+            LoginHelper.finalizeLogin(context, cookie, finalVisitorData, dataSyncId, "0")
+        } catch (e: Exception) {
+            setStatus("Error: ${e.message}")
+            setLoading(false)
+        }
+    } else {
+        Toast.makeText(context, "Invalid token block", Toast.LENGTH_LONG).show()
     }
 }
 

@@ -626,6 +626,10 @@ fun WearLoginScreen() {
         item {
             Chip(
                 onClick = {
+                    if (serverUrl == null) {
+                        Toast.makeText(context, errorNoWifiIp, Toast.LENGTH_LONG).show()
+                    }
+                    
                     coroutineScope.launch {
                         try {
                             val remoteActivityHelper = RemoteActivityHelper(context, ContextCompat.getMainExecutor(context))
@@ -690,10 +694,33 @@ fun WearLoginScreen() {
             }
         } else {
             item {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                    Spacer(Modifier.height(8.dp))
-                    Text(statusMessage ?: stringResource(R.string.starting_server), style = MaterialTheme.typography.caption2)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth().padding(16.dp)
+                ) {
+                    if (statusMessage == errorNoWifiIp) {
+                        Icon(
+                            painter = painterResource(R.drawable.error),
+                            contentDescription = null,
+                            tint = MaterialTheme.colors.error,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = statusMessage!!,
+                            style = MaterialTheme.typography.caption2,
+                            color = MaterialTheme.colors.error,
+                            textAlign = TextAlign.Center
+                        )
+                    } else {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = statusMessage ?: stringResource(R.string.starting_server),
+                            style = MaterialTheme.typography.caption2,
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
             }
         }

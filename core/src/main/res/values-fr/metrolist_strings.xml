@@ -909,4 +909,10 @@
     <string name="android_auto_search_options">Options de recherche</string>
     <string name="android_auto_search_local_songs_limit">Limite de recherche de titres</string>
     <string name="android_auto_search_local_songs_limit_desc">Limitez le nombre de morceaux locaux affichés dans les résultats de recherche. Il est recommandé de ne pas choisir l\'option « illimité » afin d\'éviter les plantages liés à la mémoire.</string>
+    <string name="off_body_app_close">Fermer l\'app lorsqu\'elle n\'est pas portée</string>
+    <string name="off_body_app_close_desc">Ferme l\'application après 1 minute si la montre n\'est pas au poignet pour économiser la batterie.</string>
+    <string name="battery_saver_mode">Mode économie de batterie</string>
+    <string name="battery_saver_mode_desc">Désactive les animations et les effets visuels pour économiser la batterie.</string>
+    <string name="downloading_progress">Téléchargement… %1$d/%2$d</string>
+    <string name="downloading_paused">Téléchargement mis en pause… %1$d/%2$d</string>
 </resources>

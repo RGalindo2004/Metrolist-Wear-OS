@@ -462,4 +462,10 @@
     <string name="lyrics_animation_style_title">Estilo de animação palavra-por-palavra</string>
     <string name="system_equalizer_desc">Abrir equalizador embutido do Android</string>
     <string name="eq_wizard">Mago do AutoEQ</string>
+    <string name="off_body_app_close">Fechar app quando fora do pulso</string>
+    <string name="off_body_app_close_desc">Fecha o aplicativo após 1 minuto se o relógio não estiver no pulso para economizar bateria.</string>
+    <string name="battery_saver_mode">Modo de economia de bateria</string>
+    <string name="battery_saver_mode_desc">Desativa animações e efeitos visuais para economizar bateria.</string>
+    <string name="downloading_progress">Baixando… %1$d/%2$d</string>
+    <string name="downloading_paused">Download pausado… %1$d/%2$d</string>
 </resources>

@@ -832,4 +832,10 @@
     <string name="widget_playlists">Playlisty</string>
     <string name="loudness_level">Poziom głośności</string>
     <string name="experimental_lyrics_desc">Włącz nowy eksperymentalny komponent tekstów z ulepszonymi animacjami i wydajnością</string>
+    <string name="off_body_app_close">Zamknij aplikację, gdy zegarek nie jest na ręku</string>
+    <string name="off_body_app_close_desc">Zamyka aplikację po 1 minucie, jeśli zegarek nie znajduje się na nadgarstku, aby oszczędzać baterię.</string>
+    <string name="battery_saver_mode">Tryb oszczędzania baterii</string>
+    <string name="battery_saver_mode_desc">Wyłącza animacje i efekty wizualne, aby oszczędzać baterię.</string>
+    <string name="downloading_progress">Pobieranie… %1$d/%2$d</string>
+    <string name="downloading_paused">Pobieranie wstrzymane… %1$d/%2$d</string>
 </resources>

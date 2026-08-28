@@ -5,6 +5,8 @@
 
 package com.metrolist.music.wear
 
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import com.metrolist.music.core.R
 import com.google.android.gms.wearable.MessageEvent
@@ -13,6 +15,7 @@ import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
 import com.metrolist.music.constants.*
 import com.metrolist.music.constants.AuthSyncConstants.AUTH_REQUEST_PATH
+import com.metrolist.music.constants.AuthSyncConstants.OPEN_LOGIN_PATH
 import com.metrolist.music.constants.AuthSyncConstants.AUTH_SYNC_PATH
 import com.metrolist.music.constants.AuthSyncConstants.KEY_ACCOUNT_EMAIL
 import com.metrolist.music.constants.AuthSyncConstants.KEY_ACCOUNT_HANDLE
@@ -82,6 +85,14 @@ class WearAuthRequestListenerService : WearableListenerService() {
                     Timber.e(e, "WearAuthRequestListenerService: Failed to push auth data")
                 }
             }
+        } else if (messageEvent.path == OPEN_LOGIN_PATH) {
+            Timber.d("WearAuthRequestListenerService: Received open login request")
+            
+            val intent = Intent(this, com.metrolist.music.MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                data = Uri.parse("https://metrolist.cc/login")
+            }
+            startActivity(intent)
         }
     }
 }

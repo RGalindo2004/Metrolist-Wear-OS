@@ -912,4 +912,7 @@
     <string name="battery_saver_mode_desc">Desactiva animaciones y efectos visuales para ahorrar batería.</string>
     <string name="downloading_progress">Descargando… %1$d/%2$d</string>
     <string name="downloading_paused">Descarga pausada… %1$d/%2$d</string>
+    <string name="login_on_phone">Iniciar sesión en el celular</string>
+    <string name="opening_login_on_phone">Abriendo inicio de sesión en el celular…</string>
+    <string name="phone_not_connected">Celular no conectado</string>
 </resources>

@@ -259,4 +259,10 @@
     <string name="parsed_from_link">verwerkt vanuit link</string>
     <string name="weekly_most_playlist_name">meest gespeeld deze week</string>
     <string name="monthly_most_playlist_name">meest gespeeld deze maand</string>
+    <string name="off_body_app_close">App sluiten indien niet gedragen</string>
+    <string name="off_body_app_close_desc">Sluit de app na 1 minuut als het horloge niet om de pols zit om batterij te sparen.</string>
+    <string name="battery_saver_mode">Batterijbesparingsmodus</string>
+    <string name="battery_saver_mode_desc">Schakel animaties en visuele effecten uit om batterij te sparen.</string>
+    <string name="downloading_progress">Downloaden… %1$d/%2$d</string>
+    <string name="downloading_paused">Downloaden gepauzeerd… %1$d/%2$d</string>
 </resources>

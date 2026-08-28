@@ -8,6 +8,7 @@ package com.metrolist.music.constants
 object AuthSyncConstants {
     const val AUTH_SYNC_PATH = "/auth_sync"
     const val AUTH_REQUEST_PATH = "/auth_request"
+    const val OPEN_LOGIN_PATH = "/open_login"
     
     const val KEY_COOKIE = "cookie"
     const val KEY_VISITOR_DATA = "visitorData"

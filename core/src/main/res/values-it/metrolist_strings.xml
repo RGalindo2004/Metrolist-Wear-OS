@@ -902,4 +902,10 @@
     <string name="dynamic_theme">Tema Dinamico</string>
     <string name="enable_dynamic_icon">Colori dinamici delle icone</string>
     <string name="enable_dynamic_icon_desc">Utilizza i colori del tema dinamico per l\'icona dell\'app. Quando disabilitata, l\'icona utilizza colori solidi.</string>
+    <string name="off_body_app_close">Chiudi app quando non al polso</string>
+    <string name="off_body_app_close_desc">Chiude l\'app dopo 1 minuto se l\'orologio non è al polso per risparmiare batteria.</string>
+    <string name="battery_saver_mode">Risparmio batteria</string>
+    <string name="battery_saver_mode_desc">Disabilita animazioni ed effetti visivi per risparmiare batteria.</string>
+    <string name="downloading_progress">Download in corso… %1$d/%2$d</string>
+    <string name="downloading_paused">Download in pausa… %1$d/%2$d</string>
 </resources>

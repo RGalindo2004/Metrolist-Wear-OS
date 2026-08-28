@@ -1642,6 +1642,11 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        if (uri.pathSegments.firstOrNull() == "login") {
+            navController.navigate("login")
+            return
+        }
+
         when (val path = uri.pathSegments.firstOrNull()) {
             "playlist" -> {
                 val playlistId = uri.getQueryParameter("list")

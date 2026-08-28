@@ -81,6 +81,7 @@ import com.metrolist.music.LocalSyncUtils
 import com.metrolist.music.WearApp
 import com.metrolist.music.constants.*
 import com.metrolist.music.constants.AuthSyncConstants.AUTH_REQUEST_PATH
+import com.metrolist.music.constants.AuthSyncConstants.OPEN_LOGIN_PATH
 import com.metrolist.music.core.R
 import com.metrolist.music.db.entities.Playlist
 import com.metrolist.music.db.entities.PlaylistSong
@@ -469,6 +470,9 @@ fun WearLoginScreen() {
     val processingToken = stringResource(R.string.processing_token)
     val errorUnknown = stringResource(R.string.error_unknown)
     val loginFailed = stringResource(R.string.login_failed)
+    val loginOnPhone = stringResource(R.string.login_on_phone)
+    val openingLoginOnPhone = stringResource(R.string.opening_login_on_phone)
+    val phoneNotConnected = stringResource(R.string.phone_not_connected)
 
     DisposableEffect(Unit) {
         var ip = getLocalIpAddress()
@@ -615,6 +619,36 @@ fun WearLoginScreen() {
         modifier = Modifier.fillMaxSize().focusRequester(focusRequester).focusable()
     ) {
         item { ListHeader { Text(stringResource(R.string.login)) } }
+
+        item {
+            Chip(
+                onClick = {
+                    coroutineScope.launch {
+                        try {
+                            val nodes = Wearable.getNodeClient(context).connectedNodes.await()
+                            if (nodes.isNotEmpty()) {
+                                Toast.makeText(context, openingLoginOnPhone, Toast.LENGTH_SHORT).show()
+                                nodes.forEach { node ->
+                                    Wearable.getMessageClient(context).sendMessage(
+                                        node.id,
+                                        OPEN_LOGIN_PATH,
+                                        null
+                                    ).await()
+                                }
+                            } else {
+                                Toast.makeText(context, phoneNotConnected, Toast.LENGTH_SHORT).show()
+                            }
+                        } catch (e: Exception) {
+                            Timber.tag("WearLogin").e(e, "Failed to send open login request")
+                        }
+                    }
+                },
+                label = { Text(loginOnPhone) },
+                icon = { Icon(painterResource(R.drawable.login), contentDescription = null) },
+                colors = ChipDefaults.primaryChipColors(),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+            )
+        }
 
         if (serverUrl != null) {
             item {
@@ -1376,6 +1410,20 @@ fun WearSettingsScreen(
                 modifier = Modifier.fillMaxWidth()
             )
         }
+
+        item { ListHeader { Text(stringResource(R.string.settings_section_system), style = MaterialTheme.typography.caption2) } }
+        item {
+            Chip(
+                onClick = {
+                    coroutineScope.launch {
+                        com.metrolist.music.utils.OTAUpdater.checkAndUpdate(context)
+                    }
+                },
+                label = { Text(stringResource(R.string.update_app_ota)) },
+                icon = { Icon(painterResource(R.drawable.update), contentDescription = null) },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
         
         item { Spacer(Modifier.height(40.dp)) }
     }
@@ -1470,32 +1518,32 @@ fun BulkDownloadButton(
                     }
                     downloadedCount < totalSongs -> {
                         Toast.makeText(context, R.string.downloading, Toast.LENGTH_SHORT).show()
+                        if (isManagerPaused) {
+                            DownloadService.sendResumeDownloads(context, ExoDownloadService::class.java, true)
+                        }
                         coroutineScope.launch(Dispatchers.IO) {
-                            var serviceStarted = false
-                            songs.forEachIndexed { index, song ->
+                            Timber.d("BulkDownloadButton: Starting bulk download for ${songs.size} songs")
+                            var firstNeeded = true
+                            songs.forEach { song ->
                                 val downloadState = allDownloads[song.id]?.state
                                 if (!song.isDownloaded && downloadState != Download.STATE_COMPLETED && downloadState != Download.STATE_DOWNLOADING && downloadState != Download.STATE_QUEUED) {
+                                    Timber.d("BulkDownloadButton: Adding download for ${song.id}")
                                     val downloadRequest = DownloadRequest.Builder(song.id, song.id.toUri())
                                         .setCustomCacheKey(song.id)
                                         .setData(song.title.toByteArray())
                                         .build()
                                     
-                                    if (!serviceStarted) {
-                                        DownloadService.sendAddDownload(
-                                            context,
-                                            ExoDownloadService::class.java,
-                                            downloadRequest,
-                                            true
-                                        )
-                                        serviceStarted = true
-                                    } else {
-                                        downloadUtil.downloadManager.addDownload(downloadRequest)
-                                    }
-                                    if (index % 10 == 0) kotlinx.coroutines.delay(10.milliseconds)
+                                    DownloadService.sendAddDownload(
+                                        context,
+                                        ExoDownloadService::class.java,
+                                        downloadRequest,
+                                        firstNeeded
+                                    )
+                                    firstNeeded = false
+                                    // Delay to avoid overwhelming the system with intents
+                                    kotlinx.coroutines.delay(100.milliseconds)
                                 }
                             }
-                            // If no songs were added but we need to resume? 
-                            // This case is handled by the "else if (isManagerPaused)" block above.
                         }
                     }
                 }

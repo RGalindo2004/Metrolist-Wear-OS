@@ -990,4 +990,11 @@
     <string name="battery_saver_mode_desc">Disable animations and visual effects to save battery.</string>
     <string name="downloading_progress">Downloading… %1$d/%2$d</string>
     <string name="downloading_paused">Downloading paused… %1$d/%2$d</string>
+    <string name="login_on_phone">Login on phone</string>
+    <string name="opening_login_on_phone">Opening login screen on phone…</string>
+    <string name="phone_not_connected">Phone not connected</string>
+    <string name="update_app_ota">Update app (OTA)</string>
+    <string name="ota_latest_version">Already on the latest version</string>
+    <string name="ota_downloading">Downloading update…</string>
+    <string name="ota_error">Update failed: %s</string>
 </resources>

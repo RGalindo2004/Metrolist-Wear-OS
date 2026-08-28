@@ -210,9 +210,10 @@ constructor(
             databaseProvider,
             downloadCache,
             dataSourceFactory,
-            Executor(Runnable::run)
+            java.util.concurrent.Executors.newFixedThreadPool(5)
         ).apply {
-            maxParallelDownloads = 3
+            maxParallelDownloads = 5
+            requirements = androidx.media3.exoplayer.scheduler.Requirements(0)
             addListener(
                 object : DownloadManager.Listener {
                     override fun onDownloadChanged(
@@ -277,9 +278,10 @@ constructor(
     init {
         isPaused.value = downloadManager.downloadsPaused
         val result = mutableMapOf<String, Download>()
-        val cursor = downloadManager.downloadIndex.getDownloads()
-        while (cursor.moveToNext()) {
-            result[cursor.download.request.id] = cursor.download
+        downloadManager.downloadIndex.getDownloads().use { cursor ->
+            while (cursor.moveToNext()) {
+                result[cursor.download.request.id] = cursor.download
+            }
         }
         downloads.value = result
     }

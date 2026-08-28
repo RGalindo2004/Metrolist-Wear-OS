@@ -391,7 +391,7 @@ fun WearOptionsPage(
                                 context,
                                 ExoDownloadService::class.java,
                                 downloadRequest,
-                                false
+                                true
                             )
                         }
                     },

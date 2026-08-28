@@ -916,4 +916,10 @@
     <string name="android_auto_search_options">Настройки поиска</string>
     <string name="android_auto_search_local_songs_limit">Лимит поиска треков</string>
     <string name="android_auto_search_local_songs_limit_desc">Ограничение количества локальных треков, отображаемых в результатах поиска. Не рекомендуется устанавливать значение \"Неограниченно\" во избежание сбоев из-за нехватки памяти</string>
+    <string name="off_body_app_close">Закрывать приложение, если часы не на руке</string>
+    <string name="off_body_app_close_desc">Закрывает приложение через 1 минуту, если часы не на запястье, для экономии заряда батареи.</string>
+    <string name="battery_saver_mode">Режим экономии заряда</string>
+    <string name="battery_saver_mode_desc">Отключает анимацию и визуальные эффекты для экономии заряда батареи.</string>
+    <string name="downloading_progress">Загрузка… %1$d/%2$d</string>
+    <string name="downloading_paused">Загрузка приостановлена… %1$d/%2$d</string>
 </resources>

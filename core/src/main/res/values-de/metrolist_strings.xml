@@ -902,4 +902,10 @@
     <string name="android_auto_search_options">Suchoptionen</string>
     <string name="android_auto_search_local_songs_limit">Suchlimit für Songs</string>
     <string name="android_auto_search_local_songs_limit_desc">Begrenzen Sie die Anzahl der lokalen Titel, die in den Suchergebnissen angezeigt werden. Es wird empfohlen, nicht „unbegrenzt“ einzustellen, um Speicherabstürze zu vermeiden.</string>
+    <string name="off_body_app_close">App schließen, wenn sie nicht getragen wird</string>
+    <string name="off_body_app_close_desc">Schließt die App nach 1 Minute, wenn die Uhr nicht am Handgelenk ist, um Akku zu sparen.</string>
+    <string name="battery_saver_mode">Energiesparmodus</string>
+    <string name="battery_saver_mode_desc">Deaktiviert Animationen und visuelle Effekte, um Akku zu sparen.</string>
+    <string name="downloading_progress">Wird heruntergeladen… %1$d/%2$d</string>
+    <string name="downloading_paused">Download pausiert… %1$d/%2$d</string>
 </resources>

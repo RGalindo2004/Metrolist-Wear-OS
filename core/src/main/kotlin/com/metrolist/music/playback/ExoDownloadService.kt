@@ -46,6 +46,21 @@ class ExoDownloadService : DownloadService(
 
     override fun getDownloadManager() = downloadUtil.downloadManager
 
+    override fun onCreate() {
+        super.onCreate()
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        val channel = android.app.NotificationChannel(
+            CHANNEL_ID,
+            getString(R.string.downloading),
+            android.app.NotificationManager.IMPORTANCE_HIGH
+        )
+        notificationManager.createNotificationChannel(channel)
+        
+        downloadUtil.downloadManager.addListener(
+            TerminalStateNotificationHelper(this, downloadUtil.downloadNotificationHelper, 100)
+        )
+    }
+
     override fun getScheduler(): Scheduler = PlatformScheduler(this, JOB_ID)
 
     override fun getForegroundNotification(

@@ -45,6 +45,7 @@ wear-compose = "1.6.2"
 horologist = "0.7.15"
 wear-input = "1.2.0"
 health-services = "1.1.0-rc01"
+wear = "1.3.0"
 
 [libraries]
 guava = { module = "com.google.guava:guava", version.ref = "guava" }
@@ -143,6 +144,7 @@ wear-input = { module = "androidx.wear:wear-input", version.ref = "wear-input" }
 play-services-wearable = { module = "com.google.android.gms:play-services-wearable", version.ref = "play-services-wearable" }
 play-services-coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-play-services", version.ref = "play-services-coroutines" }
 health-services = { module = "androidx.health:health-services-client", version.ref = "health-services" }
+androidx-wear-interactions = { module = "androidx.wear:wear-remote-interactions", version.ref = "wear" }
 
 [plugins]
 androidx-room = { id = "androidx.room", version.ref = "room" }

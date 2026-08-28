@@ -50,8 +50,10 @@ import androidx.media3.exoplayer.offline.DownloadService
 import androidx.wear.compose.foundation.lazy.items
 import androidx.wear.compose.material.*
 import androidx.wear.input.RemoteInputIntentHelper
+import androidx.wear.remote.interactions.RemoteActivityHelper
 import coil3.compose.AsyncImage
 import com.google.android.gms.wearable.Wearable
+import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.tasks.await
 import com.google.android.horologist.annotations.ExperimentalHorologistApi
 import com.metrolist.music.constants.AudioNormalizationKey
@@ -472,7 +474,6 @@ fun WearLoginScreen() {
     val loginFailed = stringResource(R.string.login_failed)
     val loginOnPhone = stringResource(R.string.login_on_phone)
     val openingLoginOnPhone = stringResource(R.string.opening_login_on_phone)
-    val phoneNotConnected = stringResource(R.string.phone_not_connected)
 
     DisposableEffect(Unit) {
         var ip = getLocalIpAddress()
@@ -519,11 +520,13 @@ fun WearLoginScreen() {
                                     textarea { width: 100%; height: 250px; background: #222; color: #fff; border: 1px solid #444; border-radius: 8px; padding: 10px; font-size: 13px; box-sizing: border-box; font-family: monospace; }
                                     button { background: #BB86FC; color: #000; border: none; padding: 15px; border-radius: 30px; font-weight: bold; width: 100%; font-size: 16px; cursor: pointer; }
                                     .info { color: #aaa; font-size: 13px; margin-bottom: 20px; }
+                                    .link { color: #BB86FC; text-decoration: none; font-weight: bold; display: block; margin-bottom: 20px; }
                                 </style>
                             </head>
                             <body>
                                 <h3>${wearSyncTitle}</h3>
                                 <p class="info">${loginInstructionStep2}</p>
+                                <a href="https://metrolist.cc/login" target="_blank" class="link">Go to Login Portal</a>
                                 <form method="POST">
                                     <div class="box">
                                         <textarea name="sync_block" placeholder="**INNERTUBE COOKIE** =..."></textarea>
@@ -625,22 +628,22 @@ fun WearLoginScreen() {
                 onClick = {
                     coroutineScope.launch {
                         try {
-                            val nodes = Wearable.getNodeClient(context).connectedNodes.await()
-                            if (nodes.isNotEmpty()) {
-                                Toast.makeText(context, openingLoginOnPhone, Toast.LENGTH_SHORT).show()
-                                nodes.forEach { node ->
-                                    Timber.tag("WearLogin").d("Sending OPEN_LOGIN_PATH to node: ${node.displayName}")
-                                    Wearable.getMessageClient(context).sendMessage(
-                                        node.id,
-                                        OPEN_LOGIN_PATH,
-                                        null
-                                    ).await()
-                                }
-                            } else {
-                                Toast.makeText(context, phoneNotConnected, Toast.LENGTH_SHORT).show()
-                            }
+                            val remoteActivityHelper = RemoteActivityHelper(context, ContextCompat.getMainExecutor(context))
+                            val urlToOpen = serverUrl ?: "https://metrolist.cc/login"
+                            
+                            Toast.makeText(context, openingLoginOnPhone, Toast.LENGTH_SHORT).show()
+                            
+                            remoteActivityHelper.startRemoteActivity(
+                                Intent(Intent.ACTION_VIEW)
+                                    .setData(urlToOpen.toUri())
+                                    .addCategory(Intent.CATEGORY_BROWSABLE),
+                                null
+                            ).await()
+                            
+                            Timber.tag("WearLogin").d("Remote activity started for URL: $urlToOpen")
                         } catch (e: Exception) {
-                            Timber.tag("WearLogin").e(e, "Failed to send open login request")
+                            Timber.tag("WearLogin").e(e, "Failed to start remote activity")
+                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                         }
                     }
                 },

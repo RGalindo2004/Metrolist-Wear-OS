@@ -76,9 +76,11 @@ dependencies {
     implementation(libs.horologist.media.ui)
     implementation(libs.horologist.layout)
     implementation(libs.wear.input)
+    implementation("androidx.wear:wear-remote-interactions:1.2.0")
     implementation(libs.health.services)
     implementation(libs.play.services.wearable)
     implementation(libs.play.services.coroutines)
+    implementation(libs.coroutines.guava)
 
     implementation(libs.hilt)
     ksp(libs.hilt.compiler)

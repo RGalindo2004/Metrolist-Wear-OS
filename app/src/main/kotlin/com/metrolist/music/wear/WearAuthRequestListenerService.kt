@@ -41,7 +41,13 @@ import timber.log.Timber
 class WearAuthRequestListenerService : WearableListenerService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    override fun onCreate() {
+        super.onCreate()
+        Timber.d("WearAuthRequestListenerService: Created")
+    }
+
     override fun onMessageReceived(messageEvent: MessageEvent) {
+        Timber.d("WearAuthRequestListenerService: Received message: path=${messageEvent.path}")
         if (messageEvent.path == AUTH_REQUEST_PATH) {
             Timber.d("WearAuthRequestListenerService: Received auth sync request")
             
@@ -125,6 +131,9 @@ class WearAuthRequestListenerService : WearableListenerService() {
                 startActivity(intent)
             } catch (e: Exception) {
                 Timber.e(e, "Failed to start login activity from background")
+                scope.launch(Dispatchers.Main) {
+                    Toast.makeText(applicationContext, "Error opening login: ${e.message}", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }

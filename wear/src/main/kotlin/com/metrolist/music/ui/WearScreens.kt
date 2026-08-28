@@ -32,9 +32,7 @@ import android.media.AudioManager
 import android.os.Build
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.core.content.ContextCompat
-import androidx.core.content.getSystemService
-import androidx.core.net.toUri
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
@@ -43,6 +41,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.core.content.getSystemService
+import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.exoplayer.offline.Download
@@ -424,8 +425,6 @@ fun WearSearchScreen(
     }
 }
 
-private enum class LoginMode { Pairing, Manual }
-
 @OptIn(ExperimentalHorologistApi::class)
 @Composable
 fun WearLoginScreen() {
@@ -434,23 +433,37 @@ fun WearLoginScreen() {
     val columnState = rememberResponsiveColumnState()
     val focusRequester = remember { FocusRequester() }
 
-    var loginMode by remember { mutableStateOf<LoginMode?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var serverUrl by remember { mutableStateOf<String?>(null) }
-    var pairingCode by remember { mutableStateOf("") }
-    
+
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             val resultsBundle = RemoteInput.getResultsFromIntent(result.data)
-            val token = resultsBundle?.getCharSequence("token")?.toString()
-            if (!token.isNullOrBlank()) {
+            val block = resultsBundle?.getCharSequence("token")?.toString()
+            if (!block.isNullOrBlank()) {
                 coroutineScope.launch {
                     try {
                         statusMessage = "Processing..."
                         isLoading = true
-                        val finalVisitorData = YouTube.visitorData().getOrNull().orEmpty()
-                        LoginHelper.finalizeLogin(context, token, finalVisitorData, "", "0")
+                        
+                        fun extractValue(key: String): String {
+                            val regex = """\*+\s*${key}\s*\*+\s*=\s*([^*]+)""".toRegex(RegexOption.IGNORE_CASE)
+                            val match = regex.find(block)
+                            return match?.groupValues?.get(1)?.trim() ?: ""
+                        }
+
+                        val cookie = extractValue("INNERTUBE COOKIE")
+                        val visitorData = extractValue("VISITOR DATA")
+                        val dataSyncId = extractValue("DATASYNC ID")
+                        
+                        if (cookie.isNotBlank()) {
+                            val finalVisitorData = visitorData.ifBlank { YouTube.visitorData().getOrNull().orEmpty() }
+                            LoginHelper.finalizeLogin(context, cookie, finalVisitorData, dataSyncId, "0")
+                        } else {
+                            val finalVisitorData = YouTube.visitorData().getOrNull().orEmpty()
+                            LoginHelper.finalizeLogin(context, block, finalVisitorData, "", "0")
+                        }
                     } catch (e: Exception) {
                         statusMessage = "Error: ${e.message}"
                         isLoading = false
@@ -458,10 +471,6 @@ fun WearLoginScreen() {
                 }
             }
         }
-    }
-
-    LaunchedEffect(Unit) {
-        pairingCode = (100000..999999).random().toString()
     }
     
     fun getLocalIpAddress(): String? {
@@ -504,9 +513,7 @@ fun WearLoginScreen() {
     val loginOnPhone = stringResource(R.string.login_on_phone)
     val openingLoginOnPhone = stringResource(R.string.opening_login_on_phone)
 
-    DisposableEffect(loginMode) {
-        if (loginMode != LoginMode.Pairing) return@DisposableEffect onDispose {}
-        
+    DisposableEffect(Unit) {
         var ip = getLocalIpAddress()
         var serverSocket: ServerSocket? = null
 
@@ -615,19 +622,6 @@ fun WearLoginScreen() {
                         val path = firstLine.substringAfter(" ").substringBefore(" ")
                         val queryParams = if (path.contains("?")) path.substringAfter("?") else ""
                         
-                        if (path.startsWith("/verify_code")) {
-                            val code = queryParams.split("&").find { it.startsWith("code=") }?.substringAfter("=")
-                            val out = client.getOutputStream().bufferedWriter()
-                            if (code == pairingCode) {
-                                out.write("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nOK")
-                            } else {
-                                out.write("HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\n\r\nInvalid Code")
-                            }
-                            out.flush()
-                            client.close()
-                            continue
-                        }
-
                         if (path.startsWith("/sync") || queryParams.contains("sync_block=")) {
                             val syncBlock = queryParams.split("&")
                                 .find { it.startsWith("sync_block=") }
@@ -657,11 +651,8 @@ fun WearLoginScreen() {
                                     .btn:active { transform: scale(0.98); }
                                     .btn-primary { background: #BB86FC; color: #000; }
                                     .btn-outline { background: transparent; border: 1px solid #444; color: #fff; }
-                                    .btn-danger { background: #cf6679; color: #000; }
-                                    input[type="number"] { width: 100%; padding: 15px; background: #222; color: #fff; border: 1px solid #444; border-radius: 12px; font-size: 24px; text-align: center; letter-spacing: 5px; margin-bottom: 20px; box-sizing: border-box; }
                                     textarea { width: 100%; height: 180px; background: #222; color: #fff; border: 1px solid #444; border-radius: 12px; padding: 10px; font-size: 13px; box-sizing: border-box; font-family: monospace; margin-bottom: 15px; }
                                     .hidden { display: none; }
-                                    .status { font-size: 12px; color: #cf6679; margin-bottom: 10px; }
                                 </style>
                             </head>
                             <body>
@@ -669,29 +660,19 @@ fun WearLoginScreen() {
                                     <div class="card">
                                         <h3>${wearSyncTitle}</h3>
                                         
-                                        <!-- Step 1: Pairing -->
-                                        <div id="section-pairing">
-                                            <p>Enter the 6-digit code shown on your watch to connect.</p>
-                                            <input type="number" id="pairing-code" placeholder="000000" maxlength="6">
-                                            <div id="pairing-status" class="status hidden">Invalid code. Please try again.</div>
-                                            <button class="btn btn-primary" onclick="verifyCode()">Connect to Watch</button>
-                                        </div>
-
-                                        <!-- Step 2: Choice -->
-                                        <div id="section-choice" class="hidden">
-                                            <p>Successfully connected! Choose your login method.</p>
+                                        <div id="section-choice">
+                                            <p>Choose your login method to sync with your watch.</p>
                                             
                                             <div class="card" style="background: #252525; border: 1px dashed #444;">
-                                                <p style="color: #fff; margin-bottom: 10px;"><strong>Method 1: Semi-Automatic</strong></p>
+                                                <p style="color: #fff; margin-bottom: 10px;"><strong>Automatic Sync</strong></p>
                                                 <a href="https://music.youtube.com" target="_blank" class="btn btn-primary">1. Login to YouTube Music</a>
-                                                <button class="btn btn-outline" onclick="copyBookmarklet()">2. Copy Sync Script</button>
+                                                <button class="btn btn-outline" onclick="copyBookmarklet()">2. Send to Watch</button>
                                                 <p style="font-size: 11px;">After logging in, paste the script into your browser's address bar to sync automatically.</p>
                                             </div>
 
-                                            <button class="btn btn-outline" onclick="showManual()">Method 2: Manual Token Entry</button>
+                                            <button class="btn btn-outline" onclick="showManual()">Manual Token Entry</button>
                                         </div>
 
-                                        <!-- Step 3: Manual -->
                                         <div id="section-manual" class="hidden">
                                             <p>${loginInstructionStep2}</p>
                                             <form method="POST">
@@ -707,23 +688,10 @@ fun WearLoginScreen() {
                                 <script>
                                     const watchUrl = "${serverUrl}/sync?sync_block=";
                                     
-                                    function verifyCode() {
-                                        const code = document.getElementById('pairing-code').value;
-                                        fetch('/verify_code?code=' + code)
-                                            .then(response => {
-                                                if (response.ok) {
-                                                    document.getElementById('section-pairing').classList.add('hidden');
-                                                    document.getElementById('section-choice').classList.remove('hidden');
-                                                } else {
-                                                    document.getElementById('pairing-status').classList.remove('hidden');
-                                                }
-                                            });
-                                    }
-
                                     function copyBookmarklet() {
                                         const script = "javascript:(function(){location.href='" + watchUrl + "' + encodeURIComponent('**INNERTUBE COOKIE**=' + document.cookie);})();";
                                         navigator.clipboard.writeText(script).then(() => {
-                                            alert("Script copied! Go to the YouTube Music tab and paste this into the address bar.");
+                                            alert("Sync Script copied! Go back to the YouTube Music tab and paste this into the address bar to finish.");
                                         });
                                     }
 
@@ -777,166 +745,107 @@ fun WearLoginScreen() {
     ) {
         item { ListHeader { Text(stringResource(R.string.login)) } }
 
-        if (loginMode == null) {
-            item {
-                Chip(
-                    onClick = { loginMode = LoginMode.Pairing },
-                    label = { Text("Pairing Code") },
-                    secondaryLabel = { Text("TV style login") },
-                    icon = { Icon(painterResource(R.drawable.speed), null) },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-            item {
-                Chip(
-                    onClick = { loginMode = LoginMode.Manual },
-                    label = { Text("Manual Token") },
-                    secondaryLabel = { Text("Copy/Paste block") },
-                    icon = { Icon(painterResource(R.drawable.token), null) },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        } else if (loginMode == LoginMode.Pairing) {
-            item {
-                Chip(
-                    onClick = {
-                        if (serverUrl == null) {
-                            Toast.makeText(context, errorNoWifiIp, Toast.LENGTH_LONG).show()
-                        }
-                        
-                        coroutineScope.launch {
-                            try {
-                                val remoteActivityHelper = RemoteActivityHelper(context, ContextCompat.getMainExecutor(context))
-                                val urlToOpen = serverUrl ?: "https://music.youtube.com"
-                                
-                                Toast.makeText(context, openingLoginOnPhone, Toast.LENGTH_SHORT).show()
-                                
-                                remoteActivityHelper.startRemoteActivity(
-                                    Intent(Intent.ACTION_VIEW)
-                                        .setData(urlToOpen.toUri())
-                                        .addCategory(Intent.CATEGORY_BROWSABLE),
-                                    null
-                                ).await()
-                                
-                                Timber.tag("WearLogin").d("Remote activity started for URL: $urlToOpen")
-                            } catch (e: Exception) {
-                                Timber.tag("WearLogin").e(e, "Failed to start remote activity")
-                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    },
-                    label = { Text(loginOnPhone) },
-                    icon = { Icon(painterResource(R.drawable.login), contentDescription = null) },
-                    colors = ChipDefaults.primaryChipColors(),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
-                )
-            }
-
-            if (serverUrl != null) {
-                item {
-                    Text(
-                        text = "Pairing Code:",
-                        style = MaterialTheme.typography.caption1,
-                        color = MaterialTheme.colors.secondary,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                }
-                item {
-                    Text(
-                        text = pairingCode,
-                        style = MaterialTheme.typography.display2.copy(
-                            color = MaterialTheme.colors.primary,
-                            letterSpacing = 4.sp
-                        ),
-                        modifier = Modifier.padding(vertical = 4.dp)
-                    )
-                }
-                item {
-                    val qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=$serverUrl"
-                    AsyncImage(
-                        model = qrUrl,
-                        contentDescription = "QR Code",
-                        modifier = Modifier.size(110.dp).padding(4.dp).clip(RoundedCornerShape(12.dp)).background(androidx.compose.ui.graphics.Color.White)
-                    )
-                }
-                item {
-                    Text(
-                        text = serverUrl!!,
-                        style = MaterialTheme.typography.caption2,
-                        color = MaterialTheme.colors.primary,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                }
-            } else {
-                item {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.fillMaxWidth().padding(16.dp)
-                    ) {
-                        if (statusMessage == errorNoWifiIp) {
-                            Icon(
-                                painter = painterResource(R.drawable.error),
-                                contentDescription = null,
-                                tint = MaterialTheme.colors.error,
-                                modifier = Modifier.size(32.dp)
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                text = statusMessage!!,
-                                style = MaterialTheme.typography.caption2,
-                                color = MaterialTheme.colors.error,
-                                textAlign = TextAlign.Center
-                            )
-                        } else {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                text = statusMessage ?: stringResource(R.string.starting_server),
-                                style = MaterialTheme.typography.caption2,
-                                textAlign = TextAlign.Center
-                            )
+        item {
+            Chip(
+                onClick = {
+                    if (serverUrl == null) {
+                        Toast.makeText(context, errorNoWifiIp, Toast.LENGTH_LONG).show()
+                    }
+                    
+                    coroutineScope.launch {
+                        try {
+                            val remoteActivityHelper = RemoteActivityHelper(context, ContextCompat.getMainExecutor(context))
+                            val urlToOpen = serverUrl ?: "https://music.youtube.com"
+                            
+                            Toast.makeText(context, openingLoginOnPhone, Toast.LENGTH_SHORT).show()
+                            
+                            remoteActivityHelper.startRemoteActivity(
+                                Intent(Intent.ACTION_VIEW)
+                                    .setData(urlToOpen.toUri())
+                                    .addCategory(Intent.CATEGORY_BROWSABLE),
+                                null
+                            ).await()
+                            
+                            Timber.tag("WearLogin").d("Remote activity started for URL: $urlToOpen")
+                        } catch (e: Exception) {
+                            Timber.tag("WearLogin").e(e, "Failed to start remote activity")
+                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                         }
                     }
-                }
-            }
-            
+                },
+                label = { Text(loginOnPhone) },
+                icon = { Icon(painterResource(R.drawable.login), contentDescription = null) },
+                colors = ChipDefaults.primaryChipColors(),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+            )
+        }
+
+        if (serverUrl != null) {
             item {
-                CompactChip(
-                    onClick = { loginMode = null },
-                    label = { Text("Back") },
-                    modifier = Modifier.padding(top = 8.dp)
+                val qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=$serverUrl"
+                AsyncImage(
+                    model = qrUrl,
+                    contentDescription = "QR Code",
+                    modifier = Modifier.size(110.dp).padding(4.dp).clip(RoundedCornerShape(12.dp)).background(androidx.compose.ui.graphics.Color.White)
                 )
             }
-        } else if (loginMode == LoginMode.Manual) {
             item {
                 Text(
-                    text = "Paste the token block from your phone.",
+                    text = serverUrl!!,
                     style = MaterialTheme.typography.caption2,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(16.dp)
+                    color = MaterialTheme.colors.primary,
+                    modifier = Modifier.padding(top = 4.dp)
                 )
             }
+        }
+
+        item {
+            Chip(
+                onClick = {
+                    val remoteInput = RemoteInput.Builder("token")
+                        .setLabel("Paste Token Block")
+                        .build()
+                    val intent = RemoteInputIntentHelper.createActionRemoteInputIntent()
+                    RemoteInputIntentHelper.putRemoteInputsExtra(intent, listOf(remoteInput))
+                    launcher.launch(intent)
+                },
+                label = { Text("Manual Token") },
+                secondaryLabel = { Text("Enter on watch") },
+                icon = { Icon(painterResource(R.drawable.token), null) },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+            )
+        }
+
+        if (serverUrl == null) {
             item {
-                Chip(
-                    onClick = {
-                        val remoteInput = RemoteInput.Builder("token")
-                            .setLabel("Paste Token Block")
-                            .build()
-                        val intent = RemoteInputIntentHelper.createActionRemoteInputIntent()
-                        RemoteInputIntentHelper.putRemoteInputsExtra(intent, listOf(remoteInput))
-                        launcher.launch(intent)
-                    },
-                    label = { Text("Enter Token Block") },
-                    icon = { Icon(painterResource(R.drawable.edit), null) },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-            item {
-                CompactChip(
-                    onClick = { loginMode = null },
-                    label = { Text("Back") },
-                    modifier = Modifier.padding(top = 16.dp)
-                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth().padding(16.dp)
+                ) {
+                    if (statusMessage == errorNoWifiIp) {
+                        Icon(
+                            painter = painterResource(R.drawable.error),
+                            contentDescription = null,
+                            tint = MaterialTheme.colors.error,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = statusMessage!!,
+                            style = MaterialTheme.typography.caption2,
+                            color = MaterialTheme.colors.error,
+                            textAlign = TextAlign.Center
+                        )
+                    } else {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = statusMessage ?: stringResource(R.string.starting_server),
+                            style = MaterialTheme.typography.caption2,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
             }
         }
         
@@ -947,37 +856,6 @@ fun WearLoginScreen() {
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
-    }
-}
-
-private suspend fun finalizeManualLogin(
-    block: String,
-    context: android.content.Context,
-    setStatus: (String) -> Unit,
-    setLoading: (Boolean) -> Unit
-) {
-    fun extractValue(key: String): String {
-        val regex = """\*+\s*${key}\s*\*+\s*=\s*([^*]+)""".toRegex(RegexOption.IGNORE_CASE)
-        val match = regex.find(block)
-        return match?.groupValues?.get(1)?.trim() ?: ""
-    }
-
-    val cookie = extractValue("INNERTUBE COOKIE")
-    val visitorData = extractValue("VISITOR DATA")
-    val dataSyncId = extractValue("DATASYNC ID")
-
-    if (cookie.isNotBlank()) {
-        try {
-            setStatus("Processing...")
-            setLoading(true)
-            val finalVisitorData = visitorData.ifBlank { YouTube.visitorData().getOrNull().orEmpty() }
-            LoginHelper.finalizeLogin(context, cookie, finalVisitorData, dataSyncId, "0")
-        } catch (e: Exception) {
-            setStatus("Error: ${e.message}")
-            setLoading(false)
-        }
-    } else {
-        Toast.makeText(context, "Invalid token block", Toast.LENGTH_LONG).show()
     }
 }
 

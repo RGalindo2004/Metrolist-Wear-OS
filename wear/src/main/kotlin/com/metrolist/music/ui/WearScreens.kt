@@ -93,6 +93,7 @@ import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.queues.YouTubeQueue
+import com.metrolist.music.utils.GoogleDeviceAuth
 import com.metrolist.music.utils.LoginHelper
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.rememberPreference
@@ -104,6 +105,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalHorologistApi::class)
 @Composable
@@ -435,249 +437,52 @@ fun WearLoginScreen() {
 
     var isLoading by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
-    var serverUrl by remember { mutableStateOf<String?>(null) }
     var accountInfo by remember { mutableStateOf<com.metrolist.innertube.models.AccountInfo?>(null) }
+    
+    var deviceCodeResponse by remember { mutableStateOf<GoogleDeviceAuth.DeviceCodeResponse?>(null) }
 
-    fun getLocalIpAddress(): String? {
-        return try {
-            val interfaces = NetworkInterface.getNetworkInterfaces().toList()
-            val wifiIp = interfaces.filter { it.name.contains("wlan") || it.name.contains("eth") }
-                .flatMap { it.inetAddresses.toList() }
-                .filterIsInstance<Inet4Address>()
-                .filter { !it.isLoopbackAddress }
-                .map { it.hostAddress }
-                .firstOrNull()
+    LaunchedEffect(Unit) {
+        isLoading = true
+        statusMessage = "Generando código..."
+        GoogleDeviceAuth.requestDeviceCode().onSuccess { response ->
+            deviceCodeResponse = response
+            isLoading = false
+            statusMessage = null
             
-            if (wifiIp != null) return wifiIp
-
-            interfaces.flatMap { it.inetAddresses.toList() }
-                .filterIsInstance<Inet4Address>()
-                .filter { !it.isLoopbackAddress }
-                .filter { addr -> addr.hostAddress?.startsWith("10.0.") == false }
-                .mapNotNull { it.hostAddress }
-                .firstOrNull() ?: 
-            interfaces.flatMap { it.inetAddresses.toList() }
-                .filterIsInstance<Inet4Address>()
-                .filter { !it.isLoopbackAddress }
-                .map { it.hostAddress }
-                .firstOrNull()
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    val errorNoWifiIp = stringResource(R.string.error_no_wifi_ip)
-    val loginLabel = stringResource(R.string.login).uppercase()
-    val wearSyncTitle = stringResource(R.string.wear_sync_title)
-    val syncLibraryDesc = stringResource(R.string.sync_library_desc)
-    val processingToken = stringResource(R.string.processing_token)
-    val errorUnknown = stringResource(R.string.error_unknown)
-    val loginFailed = stringResource(R.string.login_failed)
-    val loginOnPhone = stringResource(R.string.login_on_phone)
-    val openingLoginOnPhone = stringResource(R.string.opening_login_on_phone)
-
-    DisposableEffect(Unit) {
-        var ip = getLocalIpAddress()
-        var serverSocket: ServerSocket? = null
-
-        fun handleReceivedBlock(block: String, client: java.net.Socket, isHtmlResponse: Boolean) {
-            Timber.tag("WearSyncServer").d("Received block: ${block.take(50)}...")
-
-            fun extractValue(key: String): String {
-                val regex = """\*+\s*${key}\s*\*+\s*=\s*([^*]+)""".toRegex(RegexOption.IGNORE_CASE)
-                val match = regex.find(block)
-                return match?.groupValues?.get(1)?.trim() ?: ""
-            }
-
-            val cookie = extractValue("INNERTUBE COOKIE").ifBlank { block }
-            val visitorData = extractValue("VISITOR DATA")
-            val dataSyncId = extractValue("DATASYNC ID")
-            
-            if (cookie.isNotBlank()) {
-                val out = client.getOutputStream().bufferedWriter()
-                if (isHtmlResponse) {
-                    out.write("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n")
-                    out.write("""
-                        <!DOCTYPE html>
-                        <html>
-                        <head>
-                            <meta name="viewport" content="width=device-width, initial-scale=1">
-                            <title>Success</title>
-                            <style>
-                                body { font-family: sans-serif; padding: 40px; background: #121212; color: white; text-align: center; }
-                                .card { background: #1e1e1e; border-radius: 20px; padding: 30px; border: 1px solid #333; }
-                                h2 { color: #BB86FC; }
-                                p { color: #aaa; }
-                            </style>
-                        </head>
-                        <body>
-                            <div class="card">
-                                <h2>Login Successful!</h2>
-                                <p>Your account has been synced to your watch. Check your watch now.</p>
-                            </div>
-                        </body>
-                        </html>
-                    """.trimIndent())
-                } else {
-                    out.write("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nOK")
-                }
-                out.flush()
-                client.close()
-
-                coroutineScope.launch {
-                    try {
-                        statusMessage = processingToken
-                        isLoading = true
-                        
-                        val finalVisitorData = visitorData.ifBlank { 
-                            YouTube.visitorData().getOrNull().orEmpty() 
+            // Polling
+            coroutineScope.launch {
+                while (accountInfo == null) {
+                    delay(response.interval.toLong().seconds)
+                    GoogleDeviceAuth.pollToken(response.deviceCode).onSuccess { tokenRes ->
+                        if (tokenRes.accessToken != null) {
+                            isLoading = true
+                            statusMessage = "Sincronizando..."
+                            val visitorData = YouTube.visitorData().getOrNull().orEmpty()
+                            val result = LoginHelper.finalizeLogin(
+                                context = context,
+                                bearerToken = tokenRes.accessToken,
+                                refreshToken = tokenRes.refreshToken,
+                                visitorData = visitorData,
+                                dataSyncId = "",
+                                authUser = "0",
+                                autoRestart = false
+                            )
+                            result.onSuccess { info ->
+                                accountInfo = info
+                            }.onFailure { e ->
+                                statusMessage = "Error: ${e.message}"
+                                isLoading = false
+                            }
+                        } else if (tokenRes.error != "authorization_pending") {
+                            statusMessage = "Sesión expirada. Reinicia."
+                            break
                         }
-
-                        val result = LoginHelper.finalizeLogin(
-                            context = context,
-                            cookie = cookie,
-                            visitorData = finalVisitorData,
-                            dataSyncId = dataSyncId,
-                            authUser = "0",
-                            autoRestart = false
-                        )
-                        
-                        result.onSuccess { info ->
-                            accountInfo = info
-                        }.onFailure { e ->
-                            statusMessage = e.message ?: errorUnknown
-                            isLoading = false
-                        }
-                    } catch (e: Exception) {
-                        statusMessage = errorUnknown
-                        isLoading = false
-                        Timber.tag("WearSync").e(e)
                     }
                 }
-            } else {
-                val out = client.getOutputStream().bufferedWriter()
-                out.write("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n${loginFailed}")
-                out.flush()
-                client.close()
-                statusMessage = loginFailed
             }
-        }
-
-        val thread = thread {
-            try {
-                serverSocket = try { ServerSocket(8080) } catch (e: Exception) { ServerSocket(0) }
-                val port = serverSocket!!.localPort
-                
-                if (ip == null) ip = getLocalIpAddress()
-                
-                if (ip != null) {
-                    serverUrl = "http://$ip:$port"
-                    Timber.tag("WearSyncServer").d("Server started at $serverUrl")
-                } else {
-                    statusMessage = errorNoWifiIp
-                }
-                
-                while (!Thread.currentThread().isInterrupted) {
-                    val client = try {
-                        serverSocket!!.accept()
-                    } catch (e: Exception) {
-                        null
-                    } ?: break
-                    
-                    val reader = client.getInputStream().bufferedReader()
-                    val firstLine = reader.readLine() ?: continue
-                    
-                    Timber.tag("WearSyncServer").d("Request: $firstLine")
-                    
-                    if (firstLine.startsWith("GET")) {
-                        val path = firstLine.substringAfter(" ").substringBefore(" ")
-                        val queryParams = if (path.contains("?")) path.substringAfter("?") else ""
-                        
-                        if (path.startsWith("/sync") || queryParams.contains("sync_block=")) {
-                            val syncBlock = queryParams.split("&")
-                                .find { it.startsWith("sync_block=") }
-                                ?.substringAfter("sync_block=")
-                            
-                            if (!syncBlock.isNullOrBlank()) {
-                                handleReceivedBlock(URLDecoder.decode(syncBlock, "UTF-8"), client, true)
-                                continue
-                            }
-                        }
-
-                        val out = client.getOutputStream().bufferedWriter()
-                        out.write("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n")
-                        out.write("""
-                            <!DOCTYPE html>
-                            <html>
-                            <head>
-                                <meta name="viewport" content="width=device-width, initial-scale=1">
-                                <title>Metrolist Sync</title>
-                                <style>
-                                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background: #121212; color: white; text-align: center; }
-                                    .container { max-width: 400px; margin: 0 auto; }
-                                    .card { background: #1e1e1e; border-radius: 20px; padding: 20px; margin-bottom: 20px; border: 1px solid #333; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-                                    h3 { margin-top: 0; color: #BB86FC; }
-                                    p { font-size: 14px; color: #aaa; line-height: 1.5; }
-                                    .btn { display: block; width: 100%; padding: 15px; border-radius: 30px; border: none; font-weight: bold; font-size: 16px; cursor: pointer; text-decoration: none; margin-bottom: 10px; transition: transform 0.2s; }
-                                    .btn:active { transform: scale(0.98); }
-                                    .btn-primary { background: #BB86FC; color: #000; }
-                                    .btn-outline { background: transparent; border: 1px solid #444; color: #fff; }
-                                    textarea { width: 100%; height: 180px; background: #222; color: #fff; border: 1px solid #444; border-radius: 12px; padding: 10px; font-size: 13px; box-sizing: border-box; font-family: monospace; margin-bottom: 15px; }
-                                    .hidden { display: none; }
-                                    .footer { font-size: 11px; color: #555; margin-top: 20px; }
-                                </style>
-                            </head>
-                            <body>
-                                <div class="container">
-                                    <div class="card">
-                                        <h3>${wearSyncTitle}</h3>
-                                        
-                                        <div id="section-choice">
-                                            <p>Metrolist needs your YouTube Music session to sync your library.</p>
-                                            
-                                            <div class="card" style="background: #252525; border: 1px dashed #444;">
-                                                <p style="color: #fff; margin-bottom: 10px;"><strong>Sync Token Block</strong></p>
-                                                <form method="POST">
-                                                    <textarea name="sync_block" placeholder="Paste your token block here..."></textarea>
-                                                    <button type="submit" class="btn btn-primary">${loginLabel}</button>
-                                                </form>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <p class="footer">${syncLibraryDesc}</p>
-                                </div>
-                            </body>
-                            </html>
-                        """.trimIndent())
-                        out.flush()
-                        client.close()
-                    } else if (firstLine.startsWith("POST")) {
-                        var contentLength = 0
-                        var line = reader.readLine()
-                        while (line != null && line.isNotEmpty()) {
-                            if (line.startsWith("Content-Length:")) {
-                                contentLength = line.substringAfter(": ").toInt()
-                            }
-                            line = reader.readLine()
-                        }
-                        
-                        val body = CharArray(contentLength)
-                        reader.read(body)
-                        val rawData = String(body)
-                        
-                        val syncBlockParam = rawData.split("&").find { it.startsWith("sync_block=") }
-                        val blockValueEncoded = syncBlockParam?.substringAfter("sync_block=") ?: ""
-                        handleReceivedBlock(URLDecoder.decode(blockValueEncoded, "UTF-8"), client, false)
-                    }
-                }
-            } catch (e: Exception) {
-                Timber.tag("WearSyncServer").e(e)
-            }
-        }
-
-        onDispose {
-            thread.interrupt()
-            try { serverSocket?.close() } catch (e: Exception) {}
+        }.onFailure { e ->
+            statusMessage = "Error al iniciar: ${e.message}"
+            isLoading = false
         }
     }
 
@@ -687,93 +492,69 @@ fun WearLoginScreen() {
     ) {
         item { ListHeader { Text(stringResource(R.string.login)) } }
 
-        item {
-            Chip(
-                onClick = {
-                    if (serverUrl == null) {
-                        Toast.makeText(context, errorNoWifiIp, Toast.LENGTH_LONG).show()
-                    }
-                    
-                    coroutineScope.launch {
-                        try {
-                            val remoteActivityHelper = RemoteActivityHelper(context, ContextCompat.getMainExecutor(context))
-                            val urlToOpen = serverUrl ?: "https://music.youtube.com"
-                            
-                            Toast.makeText(context, openingLoginOnPhone, Toast.LENGTH_SHORT).show()
-                            
-                            remoteActivityHelper.startRemoteActivity(
-                                Intent(Intent.ACTION_VIEW)
-                                    .setData(urlToOpen.toUri())
-                                    .addCategory(Intent.CATEGORY_BROWSABLE),
-                                null
-                            ).await()
-                            
-                            Timber.tag("WearLogin").d("Remote activity started for URL: $urlToOpen")
-                        } catch (e: Exception) {
-                            Timber.tag("WearLogin").e(e, "Failed to start remote activity")
-                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-                        }
-                    }
-                },
-                label = { Text(loginOnPhone) },
-                icon = { Icon(painterResource(R.drawable.login), contentDescription = null) },
-                colors = ChipDefaults.primaryChipColors(),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
-            )
-        }
-
-        if (serverUrl != null) {
+        if (deviceCodeResponse != null) {
             item {
-                val qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=$serverUrl"
-                AsyncImage(
-                    model = qrUrl,
-                    contentDescription = "QR Code",
-                    modifier = Modifier.size(110.dp).padding(4.dp).clip(RoundedCornerShape(12.dp)).background(androidx.compose.ui.graphics.Color.White)
+                Chip(
+                    onClick = {
+                        coroutineScope.launch {
+                            try {
+                                val remoteActivityHelper = RemoteActivityHelper(context, ContextCompat.getMainExecutor(context))
+                                val urlToOpen = "https://google.com/device"
+                                remoteActivityHelper.startRemoteActivity(
+                                    Intent(Intent.ACTION_VIEW)
+                                        .setData(urlToOpen.toUri())
+                                        .addCategory(Intent.CATEGORY_BROWSABLE),
+                                    null
+                                ).await()
+                                Toast.makeText(context, "Abre google.com/device en tu móvil", Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) {
+                                Timber.tag("WearLogin").e(e)
+                            }
+                        }
+                    },
+                    label = { Text("Login on phone") },
+                    secondaryLabel = { Text("google.com/device") },
+                    icon = { Icon(painterResource(R.drawable.login), contentDescription = null) },
+                    colors = ChipDefaults.primaryChipColors(),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
                 )
             }
+            
             item {
                 Text(
-                    text = serverUrl!!,
+                    text = "Ingresa este código:",
                     style = MaterialTheme.typography.caption2,
-                    color = MaterialTheme.colors.primary,
-                    modifier = Modifier.padding(top = 4.dp)
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 8.dp)
                 )
             }
-        } else {
+            
             item {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.fillMaxWidth().padding(16.dp)
-                ) {
-                    if (statusMessage == errorNoWifiIp) {
-                        Icon(
-                            painter = painterResource(R.drawable.error),
-                            contentDescription = null,
-                            tint = MaterialTheme.colors.error,
-                            modifier = Modifier.size(32.dp)
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = statusMessage!!,
-                            style = MaterialTheme.typography.caption2,
-                            color = MaterialTheme.colors.error,
-                            textAlign = TextAlign.Center
-                        )
-                    } else {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = statusMessage ?: stringResource(R.string.starting_server),
-                            style = MaterialTheme.typography.caption2,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
+                Text(
+                    text = deviceCodeResponse!!.userCode,
+                    style = MaterialTheme.typography.display2.copy(
+                        color = MaterialTheme.colors.primary,
+                        letterSpacing = 2.sp
+                    ),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(vertical = 4.dp)
+                )
+            }
+        }
+
+        if (statusMessage != null) {
+            item {
+                Text(
+                    text = statusMessage!!,
+                    style = MaterialTheme.typography.caption2,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(16.dp)
+                )
             }
         }
         
         if (isLoading && accountInfo == null) {
-            item { CircularProgressIndicator(modifier = Modifier.padding(8.dp)) }
+            item { CircularProgressIndicator(modifier = Modifier.size(24.dp).padding(8.dp)) }
         }
     }
 

@@ -72,6 +72,13 @@ class InnerTube {
             innerTubeX.cookie = value
         }
 
+    var bearerToken: String? = null
+        set(value) {
+            if (field == value) return
+            field = value
+            recreateTransport()
+        }
+
     var proxy: Proxy?
         get() = configuredProxy
         set(value) {
@@ -165,6 +172,7 @@ class InnerTube {
                 url("https://music.youtube.com/youtubei/v1/")
                 header("Accept", "application/json")
                 header("Cache-Control", "no-cache")
+                bearerToken?.let { header("Authorization", "Bearer $it") }
             }
         }
 

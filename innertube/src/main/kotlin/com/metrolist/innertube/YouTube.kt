@@ -117,6 +117,11 @@ object YouTube {
         set(value) {
             innerTube.cookie = value
         }
+    var bearerToken: String?
+        get() = innerTube.bearerToken
+        set(value) {
+            innerTube.bearerToken = value
+        }
     var proxy: Proxy?
         get() = innerTube.proxy
         set(value) {

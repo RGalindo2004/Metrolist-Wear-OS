@@ -15,7 +15,9 @@ import kotlinx.coroutines.withContext
 object LoginHelper {
     suspend fun finalizeLogin(
         context: Context,
-        cookie: String,
+        cookie: String? = null,
+        bearerToken: String? = null,
+        refreshToken: String? = null,
         visitorData: String,
         dataSyncId: String,
         authUser: String,
@@ -23,6 +25,7 @@ object LoginHelper {
     ): Result<com.metrolist.innertube.models.AccountInfo> = withContext(Dispatchers.IO) {
         runCatching {
             YouTube.cookie = cookie
+            YouTube.bearerToken = bearerToken
             YouTube.visitorData = visitorData
             YouTube.dataSyncId = dataSyncId
             YouTube.authUser = authUser
@@ -30,7 +33,9 @@ object LoginHelper {
             val accountInfo = YouTube.accountInfo().getOrThrow()
             
             val saved = context.safeDataStoreEdit { settings ->
-                settings[InnerTubeCookieKey] = cookie
+                if (cookie != null) settings[InnerTubeCookieKey] = cookie
+                if (bearerToken != null) settings[InnerTubeBearerTokenKey] = bearerToken
+                if (refreshToken != null) settings[InnerTubeRefreshTokenKey] = refreshToken
                 settings[VisitorDataKey] = visitorData
                 settings[DataSyncIdKey] = dataSyncId
                 settings[InnerTubeAuthUserKey] = authUser

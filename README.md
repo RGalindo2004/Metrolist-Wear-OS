@@ -23,10 +23,11 @@ Metrolist para Wear OS es una experiencia musical completa e independiente. Dise
 
 <h1><a id="screenshots"></a>Screenshots</h1>
 
-<img src="metadata/wear_screenshots/wear_player.png" alt="Player Screen" width="22%" />
-<img src="metadata/wear_screenshots/wear_options.png" alt="Options Menu" width="22%" />
-<img src="metadata/wear_screenshots/wear_library.png" alt="Library Sync" width="22%" />
-<img src="metadata/wear_screenshots/wear_login.png" alt="Standalone Login" width="22%" />
+<img src="metadata/wear_screenshots/wear_player.png" alt="Player Screen" width="18%" />
+<img src="metadata/wear_screenshots/wear_queue.png" alt="Queue Screen" width="18%" />
+<img src="metadata/wear_screenshots/wear_options.png" alt="Options Menu" width="18%" />
+<img src="metadata/wear_screenshots/wear_library.png" alt="Library Sync" width="18%" />
+<img src="metadata/wear_screenshots/wear_login.png" alt="Standalone Login" width="18%" />
 
 </div>
 

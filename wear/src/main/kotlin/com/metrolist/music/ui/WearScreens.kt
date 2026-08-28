@@ -76,7 +76,6 @@ import com.metrolist.innertube.models.AlbumItem
 import com.metrolist.innertube.models.ArtistItem
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.WatchEndpoint
-import com.metrolist.innertube.utils.parseCookieString
 import com.metrolist.music.LocalBatterySaverMode
 import com.metrolist.music.LocalDatabase
 import com.metrolist.music.LocalDownloadUtil
@@ -99,6 +98,7 @@ import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.viewmodels.OnlineSearchViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -436,43 +436,8 @@ fun WearLoginScreen() {
     var isLoading by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var serverUrl by remember { mutableStateOf<String?>(null) }
+    var accountInfo by remember { mutableStateOf<com.metrolist.innertube.models.AccountInfo?>(null) }
 
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val resultsBundle = RemoteInput.getResultsFromIntent(result.data)
-            val block = resultsBundle?.getCharSequence("token")?.toString()
-            if (!block.isNullOrBlank()) {
-                coroutineScope.launch {
-                    try {
-                        statusMessage = "Processing..."
-                        isLoading = true
-                        
-                        fun extractValue(key: String): String {
-                            val regex = """\*+\s*${key}\s*\*+\s*=\s*([^*]+)""".toRegex(RegexOption.IGNORE_CASE)
-                            val match = regex.find(block)
-                            return match?.groupValues?.get(1)?.trim() ?: ""
-                        }
-
-                        val cookie = extractValue("INNERTUBE COOKIE")
-                        val visitorData = extractValue("VISITOR DATA")
-                        val dataSyncId = extractValue("DATASYNC ID")
-                        
-                        if (cookie.isNotBlank()) {
-                            val finalVisitorData = visitorData.ifBlank { YouTube.visitorData().getOrNull().orEmpty() }
-                            LoginHelper.finalizeLogin(context, cookie, finalVisitorData, dataSyncId, "0")
-                        } else {
-                            val finalVisitorData = YouTube.visitorData().getOrNull().orEmpty()
-                            LoginHelper.finalizeLogin(context, block, finalVisitorData, "", "0")
-                        }
-                    } catch (e: Exception) {
-                        statusMessage = "Error: ${e.message}"
-                        isLoading = false
-                    }
-                }
-            }
-        }
-    }
-    
     fun getLocalIpAddress(): String? {
         return try {
             val interfaces = NetworkInterface.getNetworkInterfaces().toList()
@@ -502,11 +467,9 @@ fun WearLoginScreen() {
     }
 
     val errorNoWifiIp = stringResource(R.string.error_no_wifi_ip)
-    val loginInstructionStep2 = stringResource(R.string.login_instruction_step2).replace("2. ", "")
     val loginLabel = stringResource(R.string.login).uppercase()
     val wearSyncTitle = stringResource(R.string.wear_sync_title)
     val syncLibraryDesc = stringResource(R.string.sync_library_desc)
-    val loginStartedRestart = stringResource(R.string.login_started_restart)
     val processingToken = stringResource(R.string.processing_token)
     val errorUnknown = stringResource(R.string.error_unknown)
     val loginFailed = stringResource(R.string.login_failed)
@@ -526,7 +489,7 @@ fun WearLoginScreen() {
                 return match?.groupValues?.get(1)?.trim() ?: ""
             }
 
-            val cookie = extractValue("INNERTUBE COOKIE")
+            val cookie = extractValue("INNERTUBE COOKIE").ifBlank { block }
             val visitorData = extractValue("VISITOR DATA")
             val dataSyncId = extractValue("DATASYNC ID")
             
@@ -550,13 +513,13 @@ fun WearLoginScreen() {
                         <body>
                             <div class="card">
                                 <h2>Login Successful!</h2>
-                                <p>Your account has been synced to your watch. You can now close this tab.</p>
+                                <p>Your account has been synced to your watch. Check your watch now.</p>
                             </div>
                         </body>
                         </html>
                     """.trimIndent())
                 } else {
-                    out.write("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n${loginStartedRestart}")
+                    out.write("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nOK")
                 }
                 out.flush()
                 client.close()
@@ -570,13 +533,21 @@ fun WearLoginScreen() {
                             YouTube.visitorData().getOrNull().orEmpty() 
                         }
 
-                        LoginHelper.finalizeLogin(
+                        val result = LoginHelper.finalizeLogin(
                             context = context,
                             cookie = cookie,
                             visitorData = finalVisitorData,
                             dataSyncId = dataSyncId,
-                            authUser = "0"
+                            authUser = "0",
+                            autoRestart = false
                         )
+                        
+                        result.onSuccess { info ->
+                            accountInfo = info
+                        }.onFailure { e ->
+                            statusMessage = e.message ?: errorUnknown
+                            isLoading = false
+                        }
                     } catch (e: Exception) {
                         statusMessage = errorUnknown
                         isLoading = false
@@ -653,6 +624,7 @@ fun WearLoginScreen() {
                                     .btn-outline { background: transparent; border: 1px solid #444; color: #fff; }
                                     textarea { width: 100%; height: 180px; background: #222; color: #fff; border: 1px solid #444; border-radius: 12px; padding: 10px; font-size: 13px; box-sizing: border-box; font-family: monospace; margin-bottom: 15px; }
                                     .hidden { display: none; }
+                                    .footer { font-size: 11px; color: #555; margin-top: 20px; }
                                 </style>
                             </head>
                             <body>
@@ -661,28 +633,23 @@ fun WearLoginScreen() {
                                         <h3>${wearSyncTitle}</h3>
                                         
                                         <div id="section-choice">
-                                            <p>Choose your login method to sync with your watch.</p>
+                                            <p>Metrolist needs your YouTube Music session to sync your library.</p>
                                             
                                             <div class="card" style="background: #252525; border: 1px dashed #444;">
-                                                <p style="color: #fff; margin-bottom: 10px;"><strong>Automatic Sync</strong></p>
-                                                <a href="https://music.youtube.com" target="_blank" class="btn btn-primary">1. Login to YouTube Music</a>
-                                                <button class="btn btn-outline" onclick="copyBookmarklet()">2. Send to Watch</button>
-                                                <p style="font-size: 11px;">After logging in, paste the script into your browser's address bar to sync automatically.</p>
+                                                <p style="color: #fff; margin-bottom: 10px;"><strong>Sync Token Block</strong></p>
+                                                <form method="POST">
+                                                    <textarea name="sync_block" placeholder="Paste your token block here..."></textarea>
+                                                    <button type="submit" class="btn btn-primary">${loginLabel}</button>
+                                                </form>
+                                                <div style="border-top: 1px solid #333; margin: 15px 0; padding-top: 15px;">
+                                                    <p style="font-size: 12px;">Don't have a token? Use the automatic script:</p>
+                                                    <a href="https://music.youtube.com" target="_blank" class="btn btn-outline" style="font-size: 13px;">1. Login to YouTube Music</a>
+                                                    <button class="btn btn-outline" onclick="copyBookmarklet()" style="font-size: 13px;">2. Send to Watch</button>
+                                                </div>
                                             </div>
-
-                                            <button class="btn btn-outline" onclick="showManual()">Manual Token Entry</button>
-                                        </div>
-
-                                        <div id="section-manual" class="hidden">
-                                            <p>${loginInstructionStep2}</p>
-                                            <form method="POST">
-                                                <textarea name="sync_block" placeholder="Paste your token block here..."></textarea>
-                                                <button type="submit" class="btn btn-primary">${loginLabel}</button>
-                                            </form>
-                                            <button class="btn btn-outline" onclick="showChoice()">Back</button>
                                         </div>
                                     </div>
-                                    <p style="font-size: 11px; color: #555;">${syncLibraryDesc}</p>
+                                    <p class="footer">${syncLibraryDesc}</p>
                                 </div>
 
                                 <script>
@@ -693,15 +660,6 @@ fun WearLoginScreen() {
                                         navigator.clipboard.writeText(script).then(() => {
                                             alert("Sync Script copied! Go back to the YouTube Music tab and paste this into the address bar to finish.");
                                         });
-                                    }
-
-                                    function showManual() {
-                                        document.getElementById('section-choice').classList.add('hidden');
-                                        document.getElementById('section-manual').classList.remove('hidden');
-                                    }
-                                    function showChoice() {
-                                        document.getElementById('section-choice').classList.remove('hidden');
-                                        document.getElementById('section-manual').classList.add('hidden');
                                     }
                                 </script>
                             </body>
@@ -797,26 +755,7 @@ fun WearLoginScreen() {
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
-        }
-
-        item {
-            Chip(
-                onClick = {
-                    val remoteInput = RemoteInput.Builder("token")
-                        .setLabel("Paste Token Block")
-                        .build()
-                    val intent = RemoteInputIntentHelper.createActionRemoteInputIntent()
-                    RemoteInputIntentHelper.putRemoteInputsExtra(intent, listOf(remoteInput))
-                    launcher.launch(intent)
-                },
-                label = { Text("Manual Token") },
-                secondaryLabel = { Text("Enter on watch") },
-                icon = { Icon(painterResource(R.drawable.token), null) },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
-            )
-        }
-
-        if (serverUrl == null) {
+        } else {
             item {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -849,8 +788,45 @@ fun WearLoginScreen() {
             }
         }
         
-        if (isLoading) {
+        if (isLoading && accountInfo == null) {
             item { CircularProgressIndicator(modifier = Modifier.padding(8.dp)) }
+        }
+    }
+
+    if (accountInfo != null) {
+        Box(
+            modifier = Modifier.fillMaxSize().background(MaterialTheme.colors.background),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(16.dp)
+            ) {
+                AsyncImage(
+                    model = accountInfo!!.thumbnailUrl,
+                    contentDescription = null,
+                    modifier = Modifier.size(64.dp).clip(CircleShape).background(MaterialTheme.colors.surface)
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = "Bienvenido,\n${accountInfo!!.name}",
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.title3,
+                    color = MaterialTheme.colors.primary
+                )
+            }
+        }
+        
+        LaunchedEffect(Unit) {
+            delay(3000.milliseconds)
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            if (launchIntent != null) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                context.startActivity(launchIntent)
+            }
+            if (context is Activity) {
+                context.finish()
+            }
         }
     }
 
@@ -1696,7 +1672,7 @@ fun BulkDownloadButton(
                                     )
                                     firstNeeded = false
                                     // Delay to avoid overwhelming the system with intents
-                                    kotlinx.coroutines.delay(100.milliseconds)
+                                    delay(100.milliseconds)
                                 }
                             }
                         }

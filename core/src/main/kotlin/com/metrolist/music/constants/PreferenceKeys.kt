@@ -519,6 +519,7 @@ val InnerTubeCookieKey = stringPreferencesKey("innerTubeCookie")
 val AccountNameKey = stringPreferencesKey("accountName")
 val AccountEmailKey = stringPreferencesKey("accountEmail")
 val AccountChannelHandleKey = stringPreferencesKey("accountChannelHandle")
+val AccountPhotoKey = stringPreferencesKey("accountPhoto")
 val UseLoginForBrowse = booleanPreferencesKey("useLoginForBrowse")
 
 val LanguageCodeToName =

@@ -19,7 +19,8 @@ object LoginHelper {
         visitorData: String,
         dataSyncId: String,
         authUser: String,
-    ): Result<Unit> = withContext(Dispatchers.IO) {
+        autoRestart: Boolean = true,
+    ): Result<com.metrolist.innertube.models.AccountInfo> = withContext(Dispatchers.IO) {
         runCatching {
             YouTube.cookie = cookie
             YouTube.visitorData = visitorData
@@ -36,16 +37,20 @@ object LoginHelper {
                 settings[AccountNameKey] = accountInfo.name
                 settings[AccountEmailKey] = accountInfo.email.orEmpty()
                 settings[AccountChannelHandleKey] = accountInfo.channelHandle.orEmpty()
+                settings[AccountPhotoKey] = accountInfo.thumbnailUrl.orEmpty()
             }
             if (!saved) throw Exception("Failed to persist account data")
 
-            withContext(Dispatchers.Main) {
-                context.packageManager
-                    .getLaunchIntentForPackage(context.packageName)
-                    ?.apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK) }
-                    ?.let(context::startActivity)
-                Runtime.getRuntime().exit(0)
+            if (autoRestart) {
+                withContext(Dispatchers.Main) {
+                    context.packageManager
+                        .getLaunchIntentForPackage(context.packageName)
+                        ?.apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK) }
+                        ?.let(context::startActivity)
+                    Runtime.getRuntime().exit(0)
+                }
             }
+            accountInfo
         }
     }
 }

@@ -641,27 +641,11 @@ fun WearLoginScreen() {
                                                     <textarea name="sync_block" placeholder="Paste your token block here..."></textarea>
                                                     <button type="submit" class="btn btn-primary">${loginLabel}</button>
                                                 </form>
-                                                <div style="border-top: 1px solid #333; margin: 15px 0; padding-top: 15px;">
-                                                    <p style="font-size: 12px;">Don't have a token? Use the automatic script:</p>
-                                                    <a href="https://music.youtube.com" target="_blank" class="btn btn-outline" style="font-size: 13px;">1. Login to YouTube Music</a>
-                                                    <button class="btn btn-outline" onclick="copyBookmarklet()" style="font-size: 13px;">2. Send to Watch</button>
-                                                </div>
                                             </div>
                                         </div>
                                     </div>
                                     <p class="footer">${syncLibraryDesc}</p>
                                 </div>
-
-                                <script>
-                                    const watchUrl = "${serverUrl}/sync?sync_block=";
-                                    
-                                    function copyBookmarklet() {
-                                        const script = "javascript:(function(){location.href='" + watchUrl + "' + encodeURIComponent('**INNERTUBE COOKIE**=' + document.cookie);})();";
-                                        navigator.clipboard.writeText(script).then(() => {
-                                            alert("Sync Script copied! Go back to the YouTube Music tab and paste this into the address bar to finish.");
-                                        });
-                                    }
-                                </script>
                             </body>
                             </html>
                         """.trimIndent())

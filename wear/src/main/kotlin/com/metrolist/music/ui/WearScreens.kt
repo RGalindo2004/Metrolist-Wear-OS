@@ -477,8 +477,83 @@ fun WearLoginScreen() {
 
     DisposableEffect(Unit) {
         var ip = getLocalIpAddress()
-        
         var serverSocket: ServerSocket? = null
+
+        fun handleReceivedBlock(block: String, client: java.net.Socket, isHtmlResponse: Boolean) {
+            Timber.tag("WearSyncServer").d("Received block: ${block.take(50)}...")
+
+            fun extractValue(key: String): String {
+                val regex = """\*+\s*${key}\s*\*+\s*=\s*([^*]+)""".toRegex(RegexOption.IGNORE_CASE)
+                val match = regex.find(block)
+                return match?.groupValues?.get(1)?.trim() ?: ""
+            }
+
+            val cookie = extractValue("INNERTUBE COOKIE")
+            val visitorData = extractValue("VISITOR DATA")
+            val dataSyncId = extractValue("DATASYNC ID")
+            
+            if (cookie.isNotBlank()) {
+                val out = client.getOutputStream().bufferedWriter()
+                if (isHtmlResponse) {
+                    out.write("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n")
+                    out.write("""
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <meta name="viewport" content="width=device-width, initial-scale=1">
+                            <title>Success</title>
+                            <style>
+                                body { font-family: sans-serif; padding: 40px; background: #121212; color: white; text-align: center; }
+                                .card { background: #1e1e1e; border-radius: 20px; padding: 30px; border: 1px solid #333; }
+                                h2 { color: #BB86FC; }
+                                p { color: #aaa; }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="card">
+                                <h2>Login Successful!</h2>
+                                <p>Your account has been synced to your watch. You can now close this tab.</p>
+                            </div>
+                        </body>
+                        </html>
+                    """.trimIndent())
+                } else {
+                    out.write("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n${loginStartedRestart}")
+                }
+                out.flush()
+                client.close()
+
+                coroutineScope.launch {
+                    try {
+                        statusMessage = processingToken
+                        isLoading = true
+                        
+                        val finalVisitorData = visitorData.ifBlank { 
+                            YouTube.visitorData().getOrNull().orEmpty() 
+                        }
+
+                        LoginHelper.finalizeLogin(
+                            context = context,
+                            cookie = cookie,
+                            visitorData = finalVisitorData,
+                            dataSyncId = dataSyncId,
+                            authUser = "0"
+                        )
+                    } catch (e: Exception) {
+                        statusMessage = errorUnknown
+                        isLoading = false
+                        Timber.tag("WearSync").e(e)
+                    }
+                }
+            } else {
+                val out = client.getOutputStream().bufferedWriter()
+                out.write("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n${loginFailed}")
+                out.flush()
+                client.close()
+                statusMessage = loginFailed
+            }
+        }
+
         val thread = thread {
             try {
                 serverSocket = try { ServerSocket(8080) } catch (e: Exception) { ServerSocket(0) }
@@ -506,6 +581,20 @@ fun WearLoginScreen() {
                     Timber.tag("WearSyncServer").d("Request: $firstLine")
                     
                     if (firstLine.startsWith("GET")) {
+                        val path = firstLine.substringAfter(" ").substringBefore(" ")
+                        val queryParams = if (path.contains("?")) path.substringAfter("?") else ""
+                        
+                        if (path.startsWith("/sync") || queryParams.contains("sync_block=")) {
+                            val syncBlock = queryParams.split("&")
+                                .find { it.startsWith("sync_block=") }
+                                ?.substringAfter("sync_block=")
+                            
+                            if (!syncBlock.isNullOrBlank()) {
+                                handleReceivedBlock(URLDecoder.decode(syncBlock, "UTF-8"), client, true)
+                                continue
+                            }
+                        }
+
                         val out = client.getOutputStream().bufferedWriter()
                         out.write("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n")
                         out.write("""
@@ -515,25 +604,70 @@ fun WearLoginScreen() {
                                 <meta name="viewport" content="width=device-width, initial-scale=1">
                                 <title>Metrolist Sync</title>
                                 <style>
-                                    body { font-family: sans-serif; padding: 20px; background: #121212; color: white; text-align: center; }
-                                    .box { background: #1e1e1e; border-radius: 16px; padding: 15px; margin-bottom: 20px; border: 1px solid #333; }
-                                    textarea { width: 100%; height: 250px; background: #222; color: #fff; border: 1px solid #444; border-radius: 8px; padding: 10px; font-size: 13px; box-sizing: border-box; font-family: monospace; }
-                                    button { background: #BB86FC; color: #000; border: none; padding: 15px; border-radius: 30px; font-weight: bold; width: 100%; font-size: 16px; cursor: pointer; }
-                                    .info { color: #aaa; font-size: 13px; margin-bottom: 20px; }
-                                    .link { color: #BB86FC; text-decoration: none; font-weight: bold; display: block; margin-bottom: 20px; }
+                                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background: #121212; color: white; text-align: center; }
+                                    .container { max-width: 400px; margin: 0 auto; }
+                                    .card { background: #1e1e1e; border-radius: 20px; padding: 20px; margin-bottom: 20px; border: 1px solid #333; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+                                    h3 { margin-top: 0; color: #BB86FC; }
+                                    p { font-size: 14px; color: #aaa; line-height: 1.5; }
+                                    .btn { display: block; width: 100%; padding: 15px; border-radius: 30px; border: none; font-weight: bold; font-size: 16px; cursor: pointer; text-decoration: none; margin-bottom: 10px; transition: transform 0.2s; }
+                                    .btn:active { transform: scale(0.98); }
+                                    .btn-google { background: white; color: #000; display: flex; align-items: center; justify-content: center; gap: 10px; }
+                                    .btn-primary { background: #BB86FC; color: #000; }
+                                    .btn-outline { background: transparent; border: 1px solid #444; color: #fff; }
+                                    textarea { width: 100%; height: 180px; background: #222; color: #fff; border: 1px solid #444; border-radius: 12px; padding: 10px; font-size: 13px; box-sizing: border-box; font-family: monospace; margin-bottom: 15px; }
+                                    .hidden { display: none; }
+                                    .logo { width: 48px; height: 48px; margin-bottom: 15px; }
                                 </style>
                             </head>
                             <body>
-                                <h3>${wearSyncTitle}</h3>
-                                <p class="info">${loginInstructionStep2}</p>
-                                <a href="https://metrolist.cc/login" target="_blank" class="link">Go to Login Portal</a>
-                                <form method="POST">
-                                    <div class="box">
-                                        <textarea name="sync_block" placeholder="**INNERTUBE COOKIE** =..."></textarea>
+                                <div class="container">
+                                    <div class="card">
+                                        <h3>${wearSyncTitle}</h3>
+                                        
+                                        <div id="section-choice">
+                                            <p>Choose your login method to sync with your watch.</p>
+                                            
+                                            <div class="card" style="background: #252525; border: 1px dashed #444;">
+                                                <p style="color: #fff; margin-bottom: 10px;"><strong>Method 1: Semi-Automatic</strong></p>
+                                                <a href="https://music.youtube.com" target="_blank" class="btn btn-primary">1. Login to YouTube Music</a>
+                                                <button class="btn btn-outline" onclick="copyBookmarklet()">2. Copy Sync Script</button>
+                                                <p style="font-size: 11px;">After logging in, paste the script into your browser's address bar to sync automatically.</p>
+                                            </div>
+
+                                            <button class="btn btn-outline" onclick="showManual()">Method 2: Manual Token Entry</button>
+                                        </div>
+
+                                        <div id="section-manual" class="hidden">
+                                            <p>${loginInstructionStep2}</p>
+                                            <form method="POST">
+                                                <textarea name="sync_block" placeholder="Paste your token block here..."></textarea>
+                                                <button type="submit" class="btn btn-primary">${loginLabel}</button>
+                                            </form>
+                                            <button class="btn btn-outline" onclick="showChoice()">Back</button>
+                                        </div>
                                     </div>
-                                    <button type="submit">${loginLabel}</button>
-                                </form>
-                                <p style="font-size: 10px; color: #555; margin-top: 20px;">${syncLibraryDesc}</p>
+                                    <p style="font-size: 11px; color: #555;">${syncLibraryDesc}</p>
+                                </div>
+
+                                <script>
+                                    const watchUrl = "${serverUrl}/sync?sync_block=";
+                                    
+                                    function copyBookmarklet() {
+                                        const script = "javascript:(function(){location.href='" + watchUrl + "' + encodeURIComponent('**INNERTUBE COOKIE**=' + document.cookie);})();";
+                                        navigator.clipboard.writeText(script).then(() => {
+                                            alert("Script copied! Go to the YouTube Music tab and paste this into the address bar.");
+                                        });
+                                    }
+
+                                    function showManual() {
+                                        document.getElementById('section-choice').classList.add('hidden');
+                                        document.getElementById('section-manual').classList.remove('hidden');
+                                    }
+                                    function showChoice() {
+                                        document.getElementById('section-choice').classList.remove('hidden');
+                                        document.getElementById('section-manual').classList.add('hidden');
+                                    }
+                                </script>
                             </body>
                             </html>
                         """.trimIndent())
@@ -555,55 +689,7 @@ fun WearLoginScreen() {
                         
                         val syncBlockParam = rawData.split("&").find { it.startsWith("sync_block=") }
                         val blockValueEncoded = syncBlockParam?.substringAfter("sync_block=") ?: ""
-                        val block = URLDecoder.decode(blockValueEncoded, "UTF-8")
-                        
-                        Timber.tag("WearSyncServer").d("Received block: ${block.take(50)}...")
-
-                        fun extractValue(key: String): String {
-                            val regex = """\*+\s*${key}\s*\*+\s*=\s*([^*]+)""".toRegex(RegexOption.IGNORE_CASE)
-                            val match = regex.find(block)
-                            return match?.groupValues?.get(1)?.trim() ?: ""
-                        }
-
-                        val cookie = extractValue("INNERTUBE COOKIE")
-                        val visitorData = extractValue("VISITOR DATA")
-                        val dataSyncId = extractValue("DATASYNC ID")
-                        
-                        if (cookie.isNotBlank()) {
-                            val out = client.getOutputStream().bufferedWriter()
-                            out.write("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n${loginStartedRestart}")
-                            out.flush()
-                            client.close()
-
-                            coroutineScope.launch {
-                                try {
-                                    statusMessage = processingToken
-                                    isLoading = true
-                                    
-                                    val finalVisitorData = visitorData.ifBlank { 
-                                        YouTube.visitorData().getOrNull().orEmpty() 
-                                    }
-
-                                    LoginHelper.finalizeLogin(
-                                        context = context,
-                                        cookie = cookie,
-                                        visitorData = finalVisitorData,
-                                        dataSyncId = dataSyncId,
-                                        authUser = "0"
-                                    )
-                                } catch (e: Exception) {
-                                    statusMessage = errorUnknown
-                                    isLoading = false
-                                    Timber.tag("WearSync").e(e)
-                                }
-                            }
-                        } else {
-                            val out = client.getOutputStream().bufferedWriter()
-                            out.write("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n${loginFailed}")
-                            out.flush()
-                            client.close()
-                            statusMessage = loginFailed
-                        }
+                        handleReceivedBlock(URLDecoder.decode(blockValueEncoded, "UTF-8"), client, false)
                     }
                 }
             } catch (e: Exception) {
@@ -633,7 +719,7 @@ fun WearLoginScreen() {
                     coroutineScope.launch {
                         try {
                             val remoteActivityHelper = RemoteActivityHelper(context, ContextCompat.getMainExecutor(context))
-                            val urlToOpen = serverUrl ?: "https://metrolist.cc/login"
+                            val urlToOpen = serverUrl ?: "https://music.youtube.com"
                             
                             Toast.makeText(context, openingLoginOnPhone, Toast.LENGTH_SHORT).show()
                             

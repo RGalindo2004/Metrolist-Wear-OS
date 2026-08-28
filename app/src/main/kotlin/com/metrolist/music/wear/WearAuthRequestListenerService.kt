@@ -5,9 +5,12 @@
 
 package com.metrolist.music.wear
 
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.core.app.NotificationCompat
 import com.metrolist.music.core.R
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.PutDataMapRequest
@@ -88,11 +91,41 @@ class WearAuthRequestListenerService : WearableListenerService() {
         } else if (messageEvent.path == OPEN_LOGIN_PATH) {
             Timber.d("WearAuthRequestListenerService: Received open login request")
             
+            scope.launch(Dispatchers.Main) {
+                Toast.makeText(applicationContext, R.string.opening_login_on_phone, Toast.LENGTH_SHORT).show()
+            }
+
             val intent = Intent(this, com.metrolist.music.MainActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                action = Intent.ACTION_VIEW
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 data = Uri.parse("https://metrolist.cc/login")
             }
-            startActivity(intent)
+
+            // Fallback notification for Android 10+ background activity start restrictions
+            val pendingIntent = PendingIntent.getActivity(
+                this,
+                0,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notification = NotificationCompat.Builder(this, "updates")
+                .setSmallIcon(R.drawable.login)
+                .setContentTitle(getString(R.string.login))
+                .setContentText(getString(R.string.opening_login_on_phone))
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .build()
+
+            val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.notify(2001, notification)
+
+            try {
+                startActivity(intent)
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to start login activity from background")
+            }
         }
     }
 }

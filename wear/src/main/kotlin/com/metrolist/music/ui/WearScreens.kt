@@ -629,6 +629,7 @@ fun WearLoginScreen() {
                             if (nodes.isNotEmpty()) {
                                 Toast.makeText(context, openingLoginOnPhone, Toast.LENGTH_SHORT).show()
                                 nodes.forEach { node ->
+                                    Timber.tag("WearLogin").d("Sending OPEN_LOGIN_PATH to node: ${node.displayName}")
                                     Wearable.getMessageClient(context).sendMessage(
                                         node.id,
                                         OPEN_LOGIN_PATH,

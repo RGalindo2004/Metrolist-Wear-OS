@@ -1,10 +1,11 @@
 package com.metrolist.music.utils
 
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.forms.submitForm
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.isSuccess
 import io.ktor.http.parameters
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.SerialName
@@ -13,13 +14,18 @@ import kotlinx.serialization.json.Json
 import timber.log.Timber
 
 object GoogleDeviceAuth {
-    private const val CLIENT_ID = "851522332635-69f8v11f18g7528euh092o93m7q9t699.apps.googleusercontent.com"
-    private const val CLIENT_SECRET = "oc9mo_YvXzyvSpsfCH9B9nK6"
+    // Official YouTube on TV Client ID (Public)
+    private const val CLIENT_ID = "207374026362-sc9vj1sh3mfhdv8p77id6v669b9u866n.apps.googleusercontent.com"
     private const val SCOPE = "https://www.googleapis.com/auth/youtube"
+
+    private val jsonSerializer = Json { 
+        ignoreUnknownKeys = true 
+        coerceInputValues = true
+    }
 
     private val client = HttpClient(CIO) {
         install(ContentNegotiation) {
-            json(Json { ignoreUnknownKeys = true })
+            json(jsonSerializer)
         }
     }
 
@@ -29,7 +35,7 @@ object GoogleDeviceAuth {
         @SerialName("user_code") val userCode: String,
         @SerialName("verification_url") val verificationUrl: String,
         @SerialName("expires_in") val expiresIn: Int,
-        val interval: Int
+        val interval: Int = 5
     )
 
     @Serializable
@@ -37,28 +43,39 @@ object GoogleDeviceAuth {
         @SerialName("access_token") val accessToken: String? = null,
         @SerialName("expires_in") val expiresIn: Int? = null,
         @SerialName("refresh_token") val refreshToken: String? = null,
-        val error: String? = null
+        val error: String? = null,
+        @SerialName("error_description") val errorDescription: String? = null
     )
 
     suspend fun requestDeviceCode(): Result<DeviceCodeResponse> = runCatching {
-        client.submitForm(
+        val response = client.submitForm(
             url = "https://oauth2.googleapis.com/device/code",
             formParameters = parameters {
                 append("client_id", CLIENT_ID)
                 append("scope", SCOPE)
             }
-        ).body()
+        )
+        
+        val bodyText = response.bodyAsText()
+        if (!response.status.isSuccess()) {
+            Timber.tag("GoogleAuth").e("Request error: $bodyText")
+            throw Exception("Google Error ${response.status.value}")
+        }
+
+        jsonSerializer.decodeFromString<DeviceCodeResponse>(bodyText)
     }
 
     suspend fun pollToken(deviceCode: String): Result<TokenResponse> = runCatching {
-        client.submitForm(
+        val response = client.submitForm(
             url = "https://oauth2.googleapis.com/token",
             formParameters = parameters {
                 append("client_id", CLIENT_ID)
-                append("client_secret", CLIENT_SECRET)
                 append("device_code", deviceCode)
                 append("grant_type", "urn:ietf:params:oauth:grant-type:device_code")
             }
-        ).body()
+        )
+        
+        val bodyText = response.bodyAsText()
+        jsonSerializer.decodeFromString<TokenResponse>(bodyText)
     }
 }

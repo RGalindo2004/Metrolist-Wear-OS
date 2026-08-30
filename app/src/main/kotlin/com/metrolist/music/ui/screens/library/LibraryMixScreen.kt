@@ -621,20 +621,11 @@ fun LibraryMixScreen(
                                     showInLibraryIcon = true,
                                     isActive = item.id == mediaMetadata?.id,
                                     isPlaying = isPlaying,
-                                    trailingContent = {
-                                        IconButton(
-                                            onClick = {
-                                                menuState.show {
-                                                    SongMenu(
-                                                        originalSong = item,
-                                                        onDismiss = menuState::dismiss,
-                                                    )
-                                                }
-                                            },
-                                        ) {
-                                            Icon(
-                                                painter = painterResource(R.drawable.more_vert),
-                                                contentDescription = null,
+                                    onMenuClick = {
+                                        menuState.show {
+                                            SongMenu(
+                                                originalSong = item,
+                                                onDismiss = menuState::dismiss,
                                             )
                                         }
                                     },

@@ -24,6 +24,7 @@ data class MediaMetadata(
     val duration: Int,
     val thumbnailUrl: String? = null,
     val album: Album? = null,
+    val playlistId: String? = null,
     val setVideoId: String? = null,
     val musicVideoType: String? = null,
     val explicit: Boolean = false,
@@ -139,6 +140,7 @@ fun SongItem.toMediaMetadata() =
                 title = it.name,
             )
         },
+        playlistId = endpoint?.playlistId,
         explicit = explicit,
         setVideoId = setVideoId,
         musicVideoType = musicVideoType,
@@ -171,6 +173,7 @@ fun EpisodeItem.toMediaMetadata() =
                 title = it.name,
             )
         },
+        playlistId = endpoint?.playlistId,
         explicit = explicit,
         suggestedBy = null,
         isEpisode = true,

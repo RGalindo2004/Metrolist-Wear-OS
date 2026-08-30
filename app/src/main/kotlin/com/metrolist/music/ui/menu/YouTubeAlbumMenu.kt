@@ -75,10 +75,12 @@ import com.metrolist.music.playback.queues.YouTubeAlbumRadio
 import com.metrolist.music.ui.component.ListDialog
 import com.metrolist.music.ui.component.Material3MenuGroup
 import com.metrolist.music.ui.component.Material3MenuItemData
+import com.metrolist.music.ui.component.LocalMenuState
 import com.metrolist.music.ui.component.NewAction
 import com.metrolist.music.ui.component.NewActionGrid
 import com.metrolist.music.ui.component.SongListItem
 import com.metrolist.music.ui.component.YouTubeListItem
+import com.metrolist.music.ui.menu.SongMenu
 import com.metrolist.music.utils.ArtistNameAliases
 import com.metrolist.music.utils.reportException
 import kotlinx.coroutines.Dispatchers
@@ -91,6 +93,7 @@ fun YouTubeAlbumMenu(
     albumItem: AlbumItem,
     onDismiss: () -> Unit,
 ) {
+    val menuState = LocalMenuState.current
     val navController = LocalNavController.current
     val context = LocalContext.current
     val database = LocalDatabase.current
@@ -193,7 +196,14 @@ fun YouTubeAlbumMenu(
             }
 
             items(notAddedList) { song ->
-                SongListItem(song = song)
+                SongListItem(
+                    song = song,
+                    onMenuClick = {
+                        menuState.show {
+                            SongMenu(originalSong = song, onDismiss = menuState::dismiss)
+                        }
+                    }
+                )
             }
         }
     }

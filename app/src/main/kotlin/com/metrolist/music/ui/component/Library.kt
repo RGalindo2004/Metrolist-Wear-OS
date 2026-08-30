@@ -9,7 +9,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -36,21 +35,12 @@ fun LibraryArtistListItem(
     val navController = LocalNavController.current
     ArtistListItem(
         artist = artist,
-        trailingContent = {
-            androidx.compose.material3.IconButton(
-                onClick = {
-                    menuState.show {
-                        ArtistMenu(
-                            originalArtist = artist,
-                            coroutineScope = coroutineScope,
-                            onDismiss = menuState::dismiss
-                        )
-                    }
-                }
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.more_vert),
-                    contentDescription = null
+        onMenuClick = {
+            menuState.show {
+                ArtistMenu(
+                    originalArtist = artist,
+                    coroutineScope = coroutineScope,
+                    onDismiss = menuState::dismiss
                 )
             }
         },
@@ -106,20 +96,11 @@ fun LibraryAlbumListItem(
     album = album,
     isActive = isActive,
     isPlaying = isPlaying,
-    trailingContent = {
-        androidx.compose.material3.IconButton(
-            onClick = {
-                menuState.show {
-                    AlbumMenu(
-                        originalAlbum = album,
-                        onDismiss = menuState::dismiss
-                    )
-                }
-            }
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.more_vert),
-                contentDescription = null
+    onMenuClick = {
+        menuState.show {
+            AlbumMenu(
+                originalAlbum = album,
+                onDismiss = menuState::dismiss
             )
         }
     },
@@ -176,51 +157,42 @@ fun LibraryPlaylistListItem(
     val navController = LocalNavController.current
     PlaylistListItem(
     playlist = playlist,
-    trailingContent = {
-        androidx.compose.material3.IconButton(
-            onClick = {
-                menuState.show {
-                    if (playlist.playlist.isEditable || playlist.songCount != 0) {
-                        PlaylistMenu(
-                            playlist = playlist,
-                            coroutineScope = coroutineScope,
-                            onDismiss = menuState::dismiss
-                        )
-                    } else {
-                        playlist.playlist.browseId?.let { browseId ->
-                            YouTubePlaylistMenu(
-                                playlist = PlaylistItem(
-                                    id = browseId,
-                                    title = playlist.playlist.name,
-                                    author = null,
-                                    songCountText = null,
-                                    thumbnail = playlist.thumbnails.getOrNull(0) ?: "",
-                                    playEndpoint = WatchEndpoint(
-                                        playlistId = browseId,
-                                        params = playlist.playlist.playEndpointParams
-                                    ),
-                                    shuffleEndpoint = WatchEndpoint(
-                                        playlistId = browseId,
-                                        params = playlist.playlist.shuffleEndpointParams
-                                    ),
-                                    radioEndpoint = WatchEndpoint(
-                                        playlistId = "RDAMPL$browseId",
-                                        params = playlist.playlist.radioEndpointParams
-                                    ),
-                                    isEditable = false
-                                ),
-                                coroutineScope = coroutineScope,
-                                onDismiss = menuState::dismiss
-                            )
-                        }
-                    }
+    onMenuClick = {
+        menuState.show {
+            if (playlist.playlist.isEditable || playlist.songCount != 0) {
+                PlaylistMenu(
+                    playlist = playlist,
+                    coroutineScope = coroutineScope,
+                    onDismiss = menuState::dismiss
+                )
+            } else {
+                playlist.playlist.browseId?.let { browseId ->
+                    YouTubePlaylistMenu(
+                        playlist = PlaylistItem(
+                            id = browseId,
+                            title = playlist.playlist.name,
+                            author = null,
+                            songCountText = null,
+                            thumbnail = playlist.thumbnails.getOrNull(0) ?: "",
+                            playEndpoint = WatchEndpoint(
+                                playlistId = browseId,
+                                params = playlist.playlist.playEndpointParams
+                            ),
+                            shuffleEndpoint = WatchEndpoint(
+                                playlistId = browseId,
+                                params = playlist.playlist.shuffleEndpointParams
+                            ),
+                            radioEndpoint = WatchEndpoint(
+                                playlistId = "RDAMPL$browseId",
+                                params = playlist.playlist.radioEndpointParams
+                            ),
+                            isEditable = false
+                        ),
+                        coroutineScope = coroutineScope,
+                        onDismiss = menuState::dismiss
+                    )
                 }
             }
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.more_vert),
-                contentDescription = null
-            )
         }
     },
     modifier = modifier

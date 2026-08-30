@@ -182,7 +182,7 @@ fun WearApp() {
                     )
                 }
                 composable("login") {
-                    WearLoginScreen()
+                    WearLoginScreen(onDismiss = { navController.popBackStack() })
                 }
                 composable("settings") {
                     WearSettingsScreen(

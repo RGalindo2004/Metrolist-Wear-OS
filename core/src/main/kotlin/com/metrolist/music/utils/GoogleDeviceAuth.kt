@@ -1,9 +1,10 @@
 package com.metrolist.music.utils
 
 import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.forms.submitForm
+import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.isSuccess
 import io.ktor.http.parameters
@@ -14,7 +15,7 @@ import kotlinx.serialization.json.Json
 import timber.log.Timber
 
 object GoogleDeviceAuth {
-    // Official YouTube on TV Client ID (Public)
+    // Official YouTube on TV Client ID
     private const val CLIENT_ID = "207374026362-sc9vj1sh3mfhdv8p77id6v669b9u866n.apps.googleusercontent.com"
     private const val SCOPE = "https://www.googleapis.com/auth/youtube"
 
@@ -23,7 +24,7 @@ object GoogleDeviceAuth {
         coerceInputValues = true
     }
 
-    private val client = HttpClient(CIO) {
+    private val client = HttpClient(OkHttp) {
         install(ContentNegotiation) {
             json(jsonSerializer)
         }
@@ -54,12 +55,17 @@ object GoogleDeviceAuth {
                 append("client_id", CLIENT_ID)
                 append("scope", SCOPE)
             }
-        )
+        ) {
+            header("User-Agent", "com.google.android.youtube.tv/2.0 (Android TV)")
+        }
         
         val bodyText = response.bodyAsText()
         if (!response.status.isSuccess()) {
             Timber.tag("GoogleAuth").e("Request error: $bodyText")
-            throw Exception("Google Error ${response.status.value}")
+            val errorMessage = runCatching { 
+                jsonSerializer.decodeFromString<TokenResponse>(bodyText).error ?: bodyText 
+            }.getOrDefault(bodyText)
+            throw Exception("Google Error ${response.status.value}: $errorMessage")
         }
 
         jsonSerializer.decodeFromString<DeviceCodeResponse>(bodyText)
@@ -73,7 +79,9 @@ object GoogleDeviceAuth {
                 append("device_code", deviceCode)
                 append("grant_type", "urn:ietf:params:oauth:grant-type:device_code")
             }
-        )
+        ) {
+            header("User-Agent", "com.google.android.youtube.tv/2.0 (Android TV)")
+        }
         
         val bodyText = response.bodyAsText()
         jsonSerializer.decodeFromString<TokenResponse>(bodyText)

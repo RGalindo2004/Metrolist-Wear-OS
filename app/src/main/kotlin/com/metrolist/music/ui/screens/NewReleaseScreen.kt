@@ -27,6 +27,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.metrolist.innertube.models.AlbumItem
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.core.R
@@ -74,6 +75,15 @@ fun NewReleaseScreen(
                 isPlaying = isPlaying,
                 fillMaxWidth = true,
                 coroutineScope = coroutineScope,
+                onMenuClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    menuState.show {
+                        YouTubeAlbumMenu(
+                            albumItem = album,
+                            onDismiss = menuState::dismiss,
+                        )
+                    }
+                },
                 modifier =
                     Modifier
                         .combinedClickable(

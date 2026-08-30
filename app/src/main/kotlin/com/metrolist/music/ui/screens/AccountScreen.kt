@@ -152,6 +152,15 @@ fun AccountScreen(
                                         }
                                     },
                                 ),
+                        onMenuClick = {
+                            menuState.show {
+                                YouTubePlaylistMenu(
+                                    playlist = item,
+                                    coroutineScope = coroutineScope,
+                                    onDismiss = menuState::dismiss,
+                                )
+                            }
+                        },
                     )
                 }
 
@@ -188,6 +197,14 @@ fun AccountScreen(
                                         }
                                     },
                                 ),
+                        onMenuClick = {
+                            menuState.show {
+                                YouTubeAlbumMenu(
+                                    albumItem = item,
+                                    onDismiss = menuState::dismiss,
+                                )
+                            }
+                        },
                     )
                 }
 
@@ -224,6 +241,14 @@ fun AccountScreen(
                                         }
                                     },
                                 ),
+                        onMenuClick = {
+                            menuState.show {
+                                YouTubeArtistMenu(
+                                    artist = item,
+                                    onDismiss = menuState::dismiss,
+                                )
+                            }
+                        },
                     )
                 }
 

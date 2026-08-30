@@ -838,48 +838,39 @@ fun Queue(
                                     isSelected = false,
                                     isActive = isActive,
                                     isPlaying = isPlaying && isActive,
+                                    onMenuClick = if (!inSelectMode && !isListenTogetherGuest) {
+                                        {
+                                            menuState.show {
+                                                QueueMenu(
+                                                    mediaMetadata = window.mediaItem.metadata!!,
+                                                    playerBottomSheetState = playerBottomSheetState,
+                                                    onShowDetailsDialog = {
+                                                        window.mediaItem.mediaId.let {
+                                                            bottomSheetPageState.show {
+                                                                ShowMediaInfo(it)
+                                                            }
+                                                        }
+                                                    },
+                                                    onDismiss = menuState::dismiss,
+                                                )
+                                            }
+                                        }
+                                    } else null,
                                     trailingContent = {
                                         if (inSelectMode) {
                                             Checkbox(
                                                 checked = window.mediaItem.mediaId in selection,
                                                 onCheckedChange = onCheckedChange,
                                             )
-                                        } else {
-                                            if (!isListenTogetherGuest) {
-                                                IconButton(
-                                                    onClick = {
-                                                        menuState.show {
-                                                            QueueMenu(
-                                                                mediaMetadata = window.mediaItem.metadata!!,
-                                                                playerBottomSheetState = playerBottomSheetState,
-                                                                onShowDetailsDialog = {
-                                                                    window.mediaItem.mediaId.let {
-                                                                        bottomSheetPageState.show {
-                                                                            ShowMediaInfo(it)
-                                                                        }
-                                                                    }
-                                                                },
-                                                                onDismiss = menuState::dismiss,
-                                                            )
-                                                        }
-                                                    },
-                                                ) {
-                                                    Icon(
-                                                        painter = painterResource(R.drawable.more_vert),
-                                                        contentDescription = null,
-                                                    )
-                                                }
-                                            }
-                                            if (!locked && !isListenTogetherGuest) {
-                                                IconButton(
-                                                    onClick = { },
-                                                    modifier = Modifier.draggableHandle(),
-                                                ) {
-                                                    Icon(
-                                                        painter = painterResource(R.drawable.drag_handle),
-                                                        contentDescription = null,
-                                                    )
-                                                }
+                                        } else if (!locked && !isListenTogetherGuest) {
+                                            IconButton(
+                                                onClick = { },
+                                                modifier = Modifier.draggableHandle(),
+                                            ) {
+                                                Icon(
+                                                    painter = painterResource(R.drawable.drag_handle),
+                                                    contentDescription = null,
+                                                )
                                             }
                                         }
                                     },
@@ -967,6 +958,22 @@ fun Queue(
                         ) {
                             MediaMetadataListItem(
                                 mediaMetadata = item.metadata!!,
+                                onMenuClick = {
+                                    menuState.show {
+                                        QueueMenu(
+                                            mediaMetadata = item.metadata!!,
+                                            playerBottomSheetState = playerBottomSheetState,
+                                            onShowDetailsDialog = {
+                                                item.mediaId.let {
+                                                    bottomSheetPageState.show {
+                                                        ShowMediaInfo(it)
+                                                    }
+                                                }
+                                            },
+                                            onDismiss = menuState::dismiss,
+                                        )
+                                    }
+                                },
                                 trailingContent = {
                                     if (!isListenTogetherGuest) {
                                         IconButton(

@@ -191,24 +191,15 @@ fun LocalSearchScreen(
                                 showInLibraryIcon = true,
                                 isActive = item.id == mediaMetadata?.id,
                                 isPlaying = isPlaying,
-                                trailingContent = {
-                                    IconButton(
-                                        onClick = {
-                                            menuState.show {
-                                                SongMenu(
-                                                    originalSong = item,
-                                                    onDismiss = {
-                                                        onDismiss()
-                                                        menuState.dismiss()
-                                                    },
-                                                    isFromCache = isFromCache,
-                                                )
-                                            }
-                                        },
-                                    ) {
-                                        Icon(
-                                            painter = painterResource(R.drawable.more_vert),
-                                            contentDescription = null,
+                                onMenuClick = {
+                                    menuState.show {
+                                        SongMenu(
+                                            originalSong = item,
+                                            onDismiss = {
+                                                onDismiss()
+                                                menuState.dismiss()
+                                            },
+                                            isFromCache = isFromCache,
                                         )
                                     }
                                 },

@@ -300,6 +300,7 @@ inline fun ListItem(
     isSelected: Boolean? = false,
     isActive: Boolean = false,
     isAvailable: Boolean = true,
+    noinline onMenuClick: (() -> Unit)? = null,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -357,13 +358,34 @@ inline fun ListItem(
                 .weight(1f)
                 .padding(horizontal = 6.dp)
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+
+                if (onMenuClick != null) {
+                    IconButton(
+                        onClick = onMenuClick,
+                        onLongClick = {},
+                        modifier = Modifier.size(32.dp).padding(start = 4.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.more_vert),
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
 
             if (subtitle != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -386,6 +408,7 @@ fun ListItem(
     trailingContent: @Composable RowScope.() -> Unit = {},
     isSelected: Boolean? = false,
     isActive: Boolean = false,
+    onMenuClick: (() -> Unit)? = null,
 ) = ListItem(
     title = title,
     subtitle = {
@@ -404,7 +427,8 @@ fun ListItem(
     trailingContent = trailingContent,
     modifier = modifier,
     isSelected = isSelected,
-    isActive = isActive
+    isActive = isActive,
+    onMenuClick = onMenuClick,
 )
 
 @Composable
@@ -417,6 +441,7 @@ fun ListItem(
     trailingContent: @Composable RowScope.() -> Unit = {},
     isSelected: Boolean? = false,
     isActive: Boolean = false,
+    onMenuClick: (() -> Unit)? = null,
 ) = ListItem(
     title = title,
     subtitle = {
@@ -436,7 +461,8 @@ fun ListItem(
     trailingContent = trailingContent,
     modifier = modifier,
     isSelected = isSelected,
-    isActive = isActive
+    isActive = isActive,
+    onMenuClick = onMenuClick,
 )
 
 @Composable
@@ -445,6 +471,7 @@ fun GridItem(
     title: @Composable () -> Unit,
     subtitle: @Composable () -> Unit,
     badges: @Composable RowScope.() -> Unit = {},
+    onMenuClick: (() -> Unit)? = null,
     thumbnailContent: @Composable BoxWithConstraintsScope.() -> Unit,
     thumbnailRatio: Float = 1f,
     fillMaxWidth: Boolean = false,
@@ -475,7 +502,26 @@ fun GridItem(
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        title()
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Box(modifier = Modifier.weight(1f)) {
+                title()
+            }
+            if (onMenuClick != null) {
+                IconButton(
+                    onClick = onMenuClick,
+                    onLongClick = {}
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.more_vert),
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             badges()
@@ -550,6 +596,7 @@ fun SongListItem(
     isActive: Boolean = false,
     isPlaying: Boolean = false,
     isSwipeable: Boolean = true,
+    onMenuClick: (() -> Unit)? = null,
     trailingContent: @Composable RowScope.() -> Unit = {},
 ) {
     val artistNameAliases = LocalArtistNameAliases.current
@@ -595,6 +642,7 @@ fun SongListItem(
                  )
              },
              trailingContent = trailingContent,
+             onMenuClick = onMenuClick,
              modifier = modifier,
              isSelected = isSelected,
              isActive = isActive
@@ -635,6 +683,7 @@ fun SongGridItem(
     isActive: Boolean = false,
     isPlaying: Boolean = false,
     fillMaxWidth: Boolean = false,
+    onMenuClick: (() -> Unit)? = null,
 ) = GridItem(
     title = {
         Text(
@@ -662,6 +711,7 @@ fun SongGridItem(
         )
     },
     badges = badges,
+    onMenuClick = onMenuClick,
     thumbnailContent = {
         val gridHeight = currentGridThumbnailHeight()
         ItemThumbnail(
@@ -697,6 +747,7 @@ fun ArtistListItem(
             )
         }
     },
+    onMenuClick: (() -> Unit)? = null,
     trailingContent: @Composable RowScope.() -> Unit = {},
 ) = ListItem(
     title = artist.artist.name,
@@ -717,6 +768,7 @@ fun ArtistListItem(
         )
     },
     trailingContent = trailingContent,
+    onMenuClick = onMenuClick,
     modifier = modifier,
 )
 
@@ -794,6 +846,7 @@ fun AlbumListItem(
     },
     isActive: Boolean = false,
     isPlaying: Boolean = false,
+    onMenuClick: (() -> Unit)? = null,
     trailingContent: @Composable RowScope.() -> Unit = {},
 ) = ListItem(
     title = album.album.title,
@@ -821,6 +874,7 @@ fun AlbumListItem(
         )
     },
     trailingContent = trailingContent,
+    onMenuClick = onMenuClick,
     modifier = modifier
 )
 
@@ -950,6 +1004,7 @@ fun PlaylistListItem(
 
         Icon.Download(downloadState)
     },
+    onMenuClick: (() -> Unit)? = null,
     trailingContent: @Composable RowScope.() -> Unit = {}
 ) = ListItem(
     title = playlist.playlist.name,
@@ -996,6 +1051,7 @@ fun PlaylistListItem(
         )
     },
     trailingContent = trailingContent,
+    onMenuClick = onMenuClick,
     modifier = modifier
 )
 
@@ -1112,6 +1168,7 @@ fun MediaMetadataListItem(
     isSelected: Boolean = false,
     isActive: Boolean = false,
     isPlaying: Boolean = false,
+    onMenuClick: (() -> Unit)? = null,
     trailingContent: @Composable RowScope.() -> Unit = {},
 ) {
     val artistNameAliases = LocalArtistNameAliases.current
@@ -1152,6 +1209,7 @@ fun MediaMetadataListItem(
             )
         },
         trailingContent = trailingContent,
+        onMenuClick = onMenuClick,
         modifier = modifier,
         isActive = isActive
     )
@@ -1167,6 +1225,7 @@ fun YouTubeListItem(
     isActive: Boolean = false,
     isPlaying: Boolean = false,
     isSwipeable: Boolean = true,
+    onMenuClick: (() -> Unit)? = null,
     trailingContent: @Composable RowScope.() -> Unit = {},
     badges: @Composable RowScope.() -> Unit = {
         val database = LocalDatabase.current
@@ -1253,6 +1312,7 @@ fun YouTubeListItem(
                 )
             },
             trailingContent = trailingContent,
+            onMenuClick = onMenuClick,
             modifier = modifier,
             isActive = isActive
         )
@@ -1300,6 +1360,7 @@ fun YouTubeGridItem(
     isActive: Boolean = false,
     isPlaying: Boolean = false,
     fillMaxWidth: Boolean = false,
+    onMenuClick: (() -> Unit)? = null,
 ) = GridItem(
     title = {
         Text(
@@ -1338,6 +1399,7 @@ fun YouTubeGridItem(
         }
     },
     badges = badges,
+    onMenuClick = onMenuClick,
     thumbnailContent = {
         val database = LocalDatabase.current
         val playerConnection = LocalPlayerConnection.current ?: return@GridItem

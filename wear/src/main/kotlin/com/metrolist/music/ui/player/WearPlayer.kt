@@ -489,6 +489,7 @@ fun WearOptionsPage(
 fun QueueScreen(playerConnection: com.metrolist.music.playback.PlayerConnection) {
     val queueWindows by playerConnection.queueWindows.collectAsStateWithLifecycle(emptyList())
     val currentWindowIndex by playerConnection.currentWindowIndex.collectAsStateWithLifecycle()
+    val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsStateWithLifecycle()
     val columnState = rememberResponsiveColumnState()
     val focusRequester = remember { FocusRequester() }
 
@@ -502,6 +503,44 @@ fun QueueScreen(playerConnection: com.metrolist.music.playback.PlayerConnection)
         item {
             ListHeader {
                 Text(stringResource(R.string.playback_queue))
+            }
+        }
+
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(
+                    onClick = { playerConnection.player.shuffleModeEnabled = !shuffleModeEnabled },
+                    colors = if (shuffleModeEnabled)
+                        ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.primary, contentColor = MaterialTheme.colors.onPrimary)
+                    else
+                        ButtonDefaults.secondaryButtonColors(),
+                    modifier = Modifier.size(ButtonDefaults.DefaultButtonSize)
+                ) {
+                    Icon(
+                        painter = painterResource(if (shuffleModeEnabled) R.drawable.shuffle_on else R.drawable.shuffle),
+                        contentDescription = stringResource(R.string.shuffle)
+                    )
+                }
+                Button(
+                    onClick = {
+                        playerConnection.mediaMetadata.value?.let { metadata ->
+                            playerConnection.playQueue(com.metrolist.music.playback.queues.YouTubeQueue.radio(metadata))
+                        }
+                    },
+                    colors = ButtonDefaults.secondaryButtonColors(),
+                    modifier = Modifier.size(ButtonDefaults.DefaultButtonSize)
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.radio),
+                        contentDescription = stringResource(R.string.start_radio)
+                    )
+                }
             }
         }
         

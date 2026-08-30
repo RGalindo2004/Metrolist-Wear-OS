@@ -83,6 +83,7 @@ import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.ui.component.AlbumListItem
 import com.metrolist.music.ui.component.ListDialog
 import com.metrolist.music.ui.component.ListItem
+import com.metrolist.music.ui.component.LocalMenuState
 import com.metrolist.music.ui.component.Material3MenuGroup
 import com.metrolist.music.ui.component.Material3MenuItemData
 import com.metrolist.music.ui.component.NewAction
@@ -101,6 +102,7 @@ fun AlbumMenu(
     originalAlbum: Album,
     onDismiss: () -> Unit,
 ) {
+    val menuState = LocalMenuState.current
     val navController = LocalNavController.current
     val context = LocalContext.current
     val database = LocalDatabase.current
@@ -215,7 +217,14 @@ fun AlbumMenu(
             }
 
             items(notAddedList) { song ->
-                SongListItem(song = song)
+                SongListItem(
+                    song = song,
+                    onMenuClick = {
+                        menuState.show {
+                            SongMenu(originalSong = song, onDismiss = menuState::dismiss)
+                        }
+                    }
+                )
             }
         }
     }

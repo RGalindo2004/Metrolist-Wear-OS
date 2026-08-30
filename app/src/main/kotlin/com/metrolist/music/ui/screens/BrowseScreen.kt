@@ -20,13 +20,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.metrolist.innertube.models.AlbumItem
 import com.metrolist.innertube.models.ArtistItem
+import com.metrolist.innertube.models.EpisodeItem
 import com.metrolist.innertube.models.PlaylistItem
+import com.metrolist.innertube.models.PodcastItem
+import com.metrolist.innertube.models.SongItem
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.core.R
@@ -41,6 +46,7 @@ import com.metrolist.music.ui.component.shimmer.ShimmerHost
 import com.metrolist.music.ui.menu.YouTubeAlbumMenu
 import com.metrolist.music.ui.menu.YouTubeArtistMenu
 import com.metrolist.music.ui.menu.YouTubePlaylistMenu
+import com.metrolist.music.ui.menu.YouTubeSongMenu
 import com.metrolist.music.ui.utils.backToMain
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.viewmodels.BrowseViewModel
@@ -53,6 +59,7 @@ fun BrowseScreen(
     viewModel: BrowseViewModel = hiltViewModel(),
 ) {
     val menuState = LocalMenuState.current
+    val haptic = LocalHapticFeedback.current
     val playerConnection = LocalPlayerConnection.current ?: return
     val isPlaying by playerConnection.isEffectivelyPlaying.collectAsStateWithLifecycle()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsStateWithLifecycle()
@@ -77,6 +84,56 @@ fun BrowseScreen(
                     isPlaying = isPlaying,
                     fillMaxWidth = true,
                     coroutineScope = coroutineScope,
+                    onMenuClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        menuState.show {
+                            when (item) {
+                                is AlbumItem -> {
+                                    YouTubeAlbumMenu(
+                                        albumItem = item,
+                                        onDismiss = menuState::dismiss,
+                                    )
+                                }
+
+                                is PlaylistItem -> {
+                                    YouTubePlaylistMenu(
+                                        playlist = item,
+                                        coroutineScope = coroutineScope,
+                                        onDismiss = menuState::dismiss,
+                                    )
+                                }
+
+                                is PodcastItem -> {
+                                    YouTubePlaylistMenu(
+                                        playlist = item.asPlaylistItem(),
+                                        coroutineScope = coroutineScope,
+                                        onDismiss = menuState::dismiss,
+                                    )
+                                }
+
+                                is ArtistItem -> {
+                                    YouTubeArtistMenu(
+                                        artist = item,
+                                        onDismiss = menuState::dismiss,
+                                    )
+                                }
+
+                                is SongItem -> {
+                                    YouTubeSongMenu(
+                                        song = item,
+                                        onDismiss = menuState::dismiss,
+                                    )
+                                }
+
+                                is EpisodeItem -> {
+                                    YouTubeSongMenu(
+                                        song = item.asSongItem(),
+                                        onDismiss = menuState::dismiss,
+                                    )
+                                }
+                            }
+                        }
+                    },
                     modifier =
                         Modifier
                             .combinedClickable(

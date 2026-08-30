@@ -219,13 +219,9 @@ fun OnlinePodcastScreen(
                                     }
                                 )
                                 .animateItem(),
-                            trailingContent = {
-                                IconButton(onClick = {
-                                    menuState.show {
-                                        YouTubeSongMenu(episode.asSongItem(), menuState::dismiss)
-                                    }
-                                }) {
-                                    Icon(painterResource(R.drawable.more_vert), null)
+                            onMenuClick = {
+                                menuState.show {
+                                    YouTubeSongMenu(episode.asSongItem(), menuState::dismiss)
                                 }
                             }
                         )

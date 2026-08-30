@@ -619,41 +619,33 @@ fun LocalPlaylistScreen(
                             isActive = song.song.id == mediaMetadata?.id,
                             isPlaying = isPlaying,
                             showInLibraryIcon = true,
+                            onMenuClick = if (!inSelectMode) {
+                                {
+                                    menuState.show {
+                                        SongMenu(
+                                            originalSong = song.song,
+                                            playlistSong = song,
+                                            playlistBrowseId = playlist?.playlist?.browseId,
+                                            onDismiss = menuState::dismiss,
+                                        )
+                                    }
+                                }
+                            } else null,
                             trailingContent = {
                                 if (inSelectMode) {
                                     Checkbox(
                                         checked = selection.contains(song.map.id),
                                         onCheckedChange = onCheckedChange,
                                     )
-                                } else {
+                                } else if (sortType == PlaylistSongSortType.CUSTOM && !locked && !isSearching && editable) {
                                     IconButton(
-                                        onClick = {
-                                            menuState.show {
-                                                SongMenu(
-                                                    originalSong = song.song,
-                                                    playlistSong = song,
-                                                    playlistBrowseId = playlist?.playlist?.browseId,
-                                                    onDismiss = menuState::dismiss,
-                                                )
-                                            }
-                                        },
+                                        onClick = { },
+                                        modifier = Modifier.draggableHandle(),
                                     ) {
                                         Icon(
-                                            painter = painterResource(R.drawable.more_vert),
+                                            painter = painterResource(R.drawable.drag_handle),
                                             contentDescription = null,
                                         )
-                                    }
-
-                                    if (sortType == PlaylistSongSortType.CUSTOM && !locked && !inSelectMode && !isSearching && editable) {
-                                        IconButton(
-                                            onClick = { },
-                                            modifier = Modifier.draggableHandle(),
-                                        ) {
-                                            Icon(
-                                                painter = painterResource(R.drawable.drag_handle),
-                                                contentDescription = null,
-                                            )
-                                        }
                                     }
                                 }
                             },

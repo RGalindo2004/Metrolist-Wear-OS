@@ -409,21 +409,12 @@ fun LibraryPodcastsScreen(
                             showLikedIcon = false,
                             showDownloadIcon = true,
                             subtitleOverride = subtitle.ifEmpty { null },
-                            trailingContent = {
-                                IconButton(
-                                    onClick = {
-                                        menuState.show {
-                                            SongMenu(
-                                                originalSong = episode,
-                                                onDismiss = menuState::dismiss,
-                                            )
-                                        }
-                                    },
-                                ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.more_vert),
-                                    contentDescription = stringResource(R.string.more_options),
-                                )
+                            onMenuClick = {
+                                menuState.show {
+                                    SongMenu(
+                                        originalSong = episode,
+                                        onDismiss = menuState::dismiss,
+                                    )
                                 }
                             },
                             modifier =

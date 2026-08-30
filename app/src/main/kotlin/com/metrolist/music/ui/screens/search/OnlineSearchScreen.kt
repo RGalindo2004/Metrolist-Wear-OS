@@ -29,7 +29,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import com.metrolist.music.ui.component.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -161,80 +161,71 @@ fun OnlineSearchScreen(
                             else -> false
                         },
                     isPlaying = isPlaying,
-                    trailingContent = {
-                        IconButton(
-                            onClick = {
-                                menuState.show {
-                                    when (item) {
-                                        is SongItem -> {
-                                            YouTubeSongMenu(
-                                                song = item,
-                                                onDismiss = {
-                                                    menuState.dismiss()
-                                                    onDismiss()
-                                                },
-                                            )
-                                        }
-
-                                        is AlbumItem -> {
-                                            YouTubeAlbumMenu(
-                                                albumItem = item,
-                                                onDismiss = {
-                                                    menuState.dismiss()
-                                                    onDismiss()
-                                                },
-                                            )
-                                        }
-
-                                        is ArtistItem -> {
-                                            YouTubeArtistMenu(
-                                                artist = item,
-                                                onDismiss = {
-                                                    menuState.dismiss()
-                                                    onDismiss()
-                                                },
-                                            )
-                                        }
-
-                                        is PlaylistItem -> {
-                                            YouTubePlaylistMenu(
-                                                playlist = item,
-                                                coroutineScope = coroutineScope,
-                                                onDismiss = {
-                                                    menuState.dismiss()
-                                                    onDismiss()
-                                                },
-                                            )
-                                        }
-
-                                        is PodcastItem -> {
-                                            YouTubePlaylistMenu(
-                                                playlist = item.asPlaylistItem(),
-                                                coroutineScope = coroutineScope,
-                                                onDismiss = {
-                                                    menuState.dismiss()
-                                                    onDismiss()
-                                                },
-                                            )
-                                        }
-
-                                        is EpisodeItem -> {
-                                            YouTubeSongMenu(
-                                                song = item.asSongItem(),
-                                                onDismiss = {
-                                                    menuState.dismiss()
-                                                    onDismiss()
-                                                },
-                                            )
-                                        }
-                                    }
+                    onMenuClick = {
+                        menuState.show {
+                            when (item) {
+                                is SongItem -> {
+                                    YouTubeSongMenu(
+                                        song = item,
+                                        onDismiss = {
+                                            menuState.dismiss()
+                                            onDismiss()
+                                        },
+                                    )
                                 }
-                            },
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.more_vert),
-                                contentDescription = null,
-                            )
+
+                                is AlbumItem -> {
+                                    YouTubeAlbumMenu(
+                                        albumItem = item,
+                                        onDismiss = {
+                                            menuState.dismiss()
+                                            onDismiss()
+                                        },
+                                    )
+                                }
+
+                                is ArtistItem -> {
+                                    YouTubeArtistMenu(
+                                        artist = item,
+                                        onDismiss = {
+                                            menuState.dismiss()
+                                            onDismiss()
+                                        },
+                                    )
+                                }
+
+                                is PlaylistItem -> {
+                                    YouTubePlaylistMenu(
+                                        playlist = item,
+                                        coroutineScope = coroutineScope,
+                                        onDismiss = {
+                                            menuState.dismiss()
+                                            onDismiss()
+                                        },
+                                    )
+                                }
+
+                                is PodcastItem -> {
+                                    YouTubePlaylistMenu(
+                                        playlist = item.asPlaylistItem(),
+                                        coroutineScope = coroutineScope,
+                                        onDismiss = {
+                                            menuState.dismiss()
+                                            onDismiss()
+                                        },
+                                    )
+                                }
+
+                                is EpisodeItem -> {
+                                    YouTubeSongMenu(
+                                        song = item.asSongItem(),
+                                        onDismiss = {
+                                            menuState.dismiss()
+                                            onDismiss()
+                                        },
+                                    )
+                                }
+                            }
                         }
                     },
                     modifier =
@@ -434,80 +425,71 @@ fun OnlineSearchScreen(
                         else -> false
                     },
                 isPlaying = isPlaying,
-                trailingContent = {
-                    IconButton(
-                        onClick = {
-                            menuState.show {
-                                when (item) {
-                                    is SongItem -> {
-                                        YouTubeSongMenu(
-                                            song = item,
-                                            onDismiss = {
-                                                menuState.dismiss()
-                                                onDismiss()
-                                            },
-                                        )
-                                    }
-
-                                    is AlbumItem -> {
-                                        YouTubeAlbumMenu(
-                                            albumItem = item,
-                                            onDismiss = {
-                                                menuState.dismiss()
-                                                onDismiss()
-                                            },
-                                        )
-                                    }
-
-                                    is ArtistItem -> {
-                                        YouTubeArtistMenu(
-                                            artist = item,
-                                            onDismiss = {
-                                                menuState.dismiss()
-                                                onDismiss()
-                                            },
-                                        )
-                                    }
-
-                                    is PlaylistItem -> {
-                                        YouTubePlaylistMenu(
-                                            playlist = item,
-                                            coroutineScope = coroutineScope,
-                                            onDismiss = {
-                                                menuState.dismiss()
-                                                onDismiss()
-                                            },
-                                        )
-                                    }
-
-                                    is PodcastItem -> {
-                                        YouTubePlaylistMenu(
-                                            playlist = item.asPlaylistItem(),
-                                            coroutineScope = coroutineScope,
-                                            onDismiss = {
-                                                menuState.dismiss()
-                                                onDismiss()
-                                            },
-                                        )
-                                    }
-
-                                    is EpisodeItem -> {
-                                        YouTubeSongMenu(
-                                            song = item.asSongItem(),
-                                            onDismiss = {
-                                                menuState.dismiss()
-                                                onDismiss()
-                                            },
-                                        )
-                                    }
-                                }
+                onMenuClick = {
+                    menuState.show {
+                        when (item) {
+                            is SongItem -> {
+                                YouTubeSongMenu(
+                                    song = item,
+                                    onDismiss = {
+                                        menuState.dismiss()
+                                        onDismiss()
+                                    },
+                                )
                             }
-                        },
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.more_vert),
-                            contentDescription = null,
-                        )
+
+                            is AlbumItem -> {
+                                YouTubeAlbumMenu(
+                                    albumItem = item,
+                                    onDismiss = {
+                                        menuState.dismiss()
+                                        onDismiss()
+                                    },
+                                )
+                            }
+
+                            is ArtistItem -> {
+                                YouTubeArtistMenu(
+                                    artist = item,
+                                    onDismiss = {
+                                        menuState.dismiss()
+                                        onDismiss()
+                                    },
+                                )
+                            }
+
+                            is PlaylistItem -> {
+                                YouTubePlaylistMenu(
+                                    playlist = item,
+                                    coroutineScope = coroutineScope,
+                                    onDismiss = {
+                                        menuState.dismiss()
+                                        onDismiss()
+                                    },
+                                )
+                            }
+
+                            is PodcastItem -> {
+                                YouTubePlaylistMenu(
+                                    playlist = item.asPlaylistItem(),
+                                    coroutineScope = coroutineScope,
+                                    onDismiss = {
+                                        menuState.dismiss()
+                                        onDismiss()
+                                    },
+                                )
+                            }
+
+                            is EpisodeItem -> {
+                                YouTubeSongMenu(
+                                    song = item.asSongItem(),
+                                    onDismiss = {
+                                        menuState.dismiss()
+                                        onDismiss()
+                                    },
+                                )
+                            }
+                        }
                     }
                 },
                 modifier =
@@ -676,6 +658,7 @@ fun SuggestionItem(
         if (!online) {
             IconButton(
                 onClick = onDelete,
+                onLongClick = {},
                 modifier = Modifier.alpha(0.5f),
             ) {
                 Icon(
@@ -687,6 +670,7 @@ fun SuggestionItem(
 
         IconButton(
             onClick = onFillTextField,
+            onLongClick = {},
             modifier = Modifier.alpha(0.5f),
         ) {
             Icon(

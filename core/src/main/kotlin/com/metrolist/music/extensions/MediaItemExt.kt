@@ -44,6 +44,7 @@ fun MediaMetadata.toMediaItem(): MediaItem {
                 .setIsPlayable(true)
                 .setExtras(Bundle().apply {
                     resolvedMetadata.thumbnailUrl?.let { putString("artwork_uri", it) }
+                    resolvedMetadata.playlistId?.let { putString("playlist_id", it) }
                 })
                 .build(),
         ).build()
@@ -73,6 +74,7 @@ fun MediaItem.withUpdatedMetadata(updatedMetadata: MediaMetadata): MediaItem {
                 .setAlbumArtist(resolvedMetadata.artists.firstOrNull()?.name)
                 .setExtras(Bundle().apply {
                     resolvedMetadata.thumbnailUrl?.let { putString("artwork_uri", it) }
+                    resolvedMetadata.playlistId?.let { putString("playlist_id", it) }
                 })
                 .build(),
         ).build()

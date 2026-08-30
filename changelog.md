@@ -1,3 +1,9 @@
+---v13.6.5
+
+- Wear OS: Added background update notifications and improved updater (@RGalindo2004)
+- Wear OS: Better synchronization between app and wear versions (@RGalindo2004)
+- Wear OS: General improvements and fixes for independent login (@RGalindo2004)
+
 ---v13.6.4
 
 - Added welcome message on home screen (@RGalindo2004)

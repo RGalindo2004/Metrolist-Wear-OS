@@ -123,6 +123,7 @@ jobs:
       # No `clean`: the runner is ephemeral, so there is nothing to clean and
       # it only discards restored cache entries.
       - name: Build Release APK
+        if: secrets.KEYSTORE != ''
         run: ./gradlew --console=plain assemble${{ matrix.variantName }}Release --warning-mode summary
         env:
           METROLIST_APPLICATION_ID: com.metrolist.music
@@ -133,6 +134,7 @@ jobs:
           LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
 
       - name: Sign APK
+        if: secrets.KEYSTORE != ''
         uses: ilharp/sign-android-release@v2.0.0
         with:
           releaseDir: app/build/outputs/apk/${{ matrix.variant }}/release/
@@ -143,6 +145,7 @@ jobs:
           buildToolsVersion: 35.0.0
 
       - name: Move and rename signed APKs
+        if: secrets.KEYSTORE != ''
         run: |
           OUTPUT_DIR="app/build/outputs/apk/${{ matrix.variant }}/release"
           mkdir -p "$OUTPUT_DIR/out"
@@ -169,9 +172,11 @@ jobs:
           ls -la "$OUTPUT_DIR/out/"
 
       - name: Build Wear APK
+        if: matrix.variant == 'foss'
         run: ./gradlew --console=plain :wear:assembleDebug --warning-mode summary
 
       - name: Upload Signed APKs
+        if: secrets.KEYSTORE != ''
         uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.variant == 'gms' && 'Metrolist-with-Google-Cast' || matrix.variant == 'izzy' && 'Metrolist-izzy' || 'Metrolist' }}
@@ -232,7 +237,7 @@ jobs:
 
       - name: Create Release
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           echo "Creating release v${{ needs.check-version.outputs.new_version }}"
 

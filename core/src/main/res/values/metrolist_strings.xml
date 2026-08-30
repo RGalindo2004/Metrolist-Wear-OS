@@ -168,6 +168,10 @@
     <string name="advanced_login">Log in with token</string>
     <string name="token_hidden">Tap to show token</string>
     <string name="token_shown">Tap again to copy or edit</string>
+    <string name="wear_login_token_step1">1. Log in to Google in Metrolist (Phone)</string>
+    <string name="wear_login_token_step2">2. Copy the token from Settings &gt; Account</string>
+    <string name="wear_login_token_step3">3. Paste it in the link provided below</string>
+    <string name="wear_login_network_warning">Ensure both devices are on the same Wi-Fi network.</string>
     <string name="token_adv_login_description">This is an ADVANCED login method. Instead of using the web portal, you can enter or update your login token directly. This can be useful for signing in across multiple devices quickly. Tokens in an unrecognized format will be rejected</string>
     <string name="yt_sync">Auto-sync with account</string>
     <string name="more_content">More content</string>
@@ -984,6 +988,7 @@
     <string name="wear_login_instruction">Log in on your phone and copy your cookie. Then tap below.</string>
     <string name="enter_cookie">Enter Cookie</string>
     <string name="login_qr_code_desc">Scan the QR code to log in to YouTube Music</string>
+    <string name="welcome_name">Welcome, %s</string>
     <string name="off_body_app_close">Close app when off-wrist</string>
     <string name="off_body_app_close_desc">Close the app after 1 minute if the watch is not on your wrist to save battery.</string>
     <string name="battery_saver_mode">Battery saver mode</string>

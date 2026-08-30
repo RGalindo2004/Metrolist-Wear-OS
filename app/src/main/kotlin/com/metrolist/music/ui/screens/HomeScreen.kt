@@ -168,6 +168,7 @@ import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.viewmodels.CommunityPlaylistItem
 import com.metrolist.music.viewmodels.HomeViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -707,6 +708,20 @@ fun HomeScreen(
         }
     val url = if (isLoggedIn) accountImageUrl else null
 
+    var showWelcome by remember { mutableStateOf(false) }
+    var hasShownWelcome by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(isLoggedIn, accountName) {
+        if (isLoggedIn && accountName != "Guest" && !hasShownWelcome) {
+            showWelcome = true
+            delay(1000)
+            showWelcome = false
+            hasShownWelcome = true
+        } else if (!isLoggedIn) {
+            hasShownWelcome = false
+        }
+    }
+
     // Extract unique podcasts from episodes for "Podcast Channels" row
     // Cache the podcasts to prevent them from disappearing during refresh
     var cachedPodcasts by remember { mutableStateOf<List<PodcastItem>>(emptyList()) }
@@ -850,6 +865,14 @@ fun HomeScreen(
                             ),
                     isActive = it.id == mediaMetadata?.id,
                     isPlaying = isPlaying,
+                    onMenuClick = {
+                        menuState.show {
+                            SongMenu(
+                                originalSong = it,
+                                onDismiss = menuState::dismiss,
+                            )
+                        }
+                    },
                 )
             }
 
@@ -1020,6 +1043,55 @@ fun HomeScreen(
                             }
                         },
                     ),
+            onMenuClick = {
+                menuState.show {
+                    when (item) {
+                        is SongItem -> {
+                            YouTubeSongMenu(
+                                song = item,
+                                onDismiss = menuState::dismiss,
+                            )
+                        }
+
+                        is AlbumItem -> {
+                            YouTubeAlbumMenu(
+                                albumItem = item,
+                                onDismiss = menuState::dismiss,
+                            )
+                        }
+
+                        is ArtistItem -> {
+                            YouTubeArtistMenu(
+                                artist = item,
+                                onDismiss = menuState::dismiss,
+                            )
+                        }
+
+                        is PlaylistItem -> {
+                            YouTubePlaylistMenu(
+                                playlist = item,
+                                coroutineScope = scope,
+                                onDismiss = menuState::dismiss,
+                            )
+                        }
+
+                        is PodcastItem -> {
+                            YouTubePlaylistMenu(
+                                playlist = item.asPlaylistItem(),
+                                coroutineScope = scope,
+                                onDismiss = menuState::dismiss,
+                            )
+                        }
+
+                        is EpisodeItem -> {
+                            YouTubeSongMenu(
+                                song = item.asSongItem(),
+                                onDismiss = menuState::dismiss,
+                            )
+                        }
+                    }
+                }
+            },
         )
     }
 
@@ -1821,20 +1893,11 @@ fun HomeScreen(
                                                 isActive = song!!.id == mediaMetadata?.id,
                                                 isPlaying = isPlaying,
                                                 isSwipeable = false,
-                                                trailingContent = {
-                                                    IconButton(
-                                                        onClick = {
-                                                            menuState.show {
-                                                                SongMenu(
-                                                                    originalSong = song!!,
-                                                                    onDismiss = menuState::dismiss,
-                                                                )
-                                                            }
-                                                        },
-                                                    ) {
-                                                        Icon(
-                                                            painter = painterResource(R.drawable.more_vert),
-                                                            contentDescription = null,
+                                                onMenuClick = {
+                                                    menuState.show {
+                                                        SongMenu(
+                                                            originalSong = song!!,
+                                                            onDismiss = menuState::dismiss,
                                                         )
                                                     }
                                                 },
@@ -2034,8 +2097,8 @@ fun HomeScreen(
                             accountPlaylists?.takeIf { it.isNotEmpty() }?.let { accountPlaylists ->
                                 item(key = "account_playlists_title") {
                                     NavigationTitle(
-                                        label = stringResource(R.string.mixes),
-                                        title = accountName,
+                                        label = if (showWelcome) null else stringResource(R.string.mixes),
+                                        title = if (showWelcome) stringResource(R.string.welcome_name, accountName) else accountName,
                                         thumbnail = {
                                             if (url != null) {
                                                 AsyncImage(
@@ -2143,21 +2206,12 @@ fun HomeScreen(
                                                 isActive = song!!.id == mediaMetadata?.id,
                                                 isPlaying = isPlaying,
                                                 isSwipeable = false,
-                                                trailingContent = {
-                                                    IconButton(
-                                                        onClick = {
-                                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                            menuState.show {
-                                                                SongMenu(
-                                                                    originalSong = song!!,
-                                                                    onDismiss = menuState::dismiss,
-                                                                )
-                                                            }
-                                                        },
-                                                    ) {
-                                                        Icon(
-                                                            painter = painterResource(R.drawable.more_vert),
-                                                            contentDescription = null,
+                                                onMenuClick = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    menuState.show {
+                                                        SongMenu(
+                                                            originalSong = song!!,
+                                                            onDismiss = menuState::dismiss,
                                                         )
                                                     }
                                                 },
@@ -2376,20 +2430,11 @@ fun HomeScreen(
                                                     isActive = song.id == mediaMetadata?.id,
                                                     isPlaying = isPlaying,
                                                     isSwipeable = false,
-                                                    trailingContent = {
-                                                        IconButton(
-                                                            onClick = {
-                                                                menuState.show {
-                                                                    YouTubeSongMenu(
-                                                                        song = song,
-                                                                        onDismiss = menuState::dismiss,
-                                                                    )
-                                                                }
-                                                            },
-                                                        ) {
-                                                            Icon(
-                                                                painter = painterResource(R.drawable.more_vert),
-                                                                contentDescription = null,
+                                                    onMenuClick = {
+                                                        menuState.show {
+                                                            YouTubeSongMenu(
+                                                                song = song,
+                                                                onDismiss = menuState::dismiss,
                                                             )
                                                         }
                                                     },

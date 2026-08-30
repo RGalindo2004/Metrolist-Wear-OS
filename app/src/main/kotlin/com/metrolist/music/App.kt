@@ -34,6 +34,7 @@ import com.metrolist.music.constants.*
 import com.metrolist.music.di.ApplicationScope
 import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.extensions.toInetSocketAddress
+import com.metrolist.music.logic.updater.UpdateWorker
 import com.metrolist.music.utils.CrashHandler
 import com.metrolist.music.utils.ArtistNameAliases
 import com.metrolist.music.utils.WearAuthSyncManager
@@ -97,6 +98,11 @@ class App :
 
         // Initialize cipher deobfuscator for WEB_REMIX streaming
         CipherDeobfuscator.initialize(this)
+
+        createNotificationChannels()
+
+        // Schedule periodic update checks
+        UpdateWorker.schedule(this)
 
         // Start Wear OS auth synchronization
         WearAuthSyncManager(this, applicationScope).startSync()
@@ -201,7 +207,9 @@ class App :
         }
 
         YouTube.useLoginForBrowse = settings[UseLoginForBrowse] ?: true
+    }
 
+    private fun createNotificationChannels() {
         val channel =
             NotificationChannel(
                 "updates",

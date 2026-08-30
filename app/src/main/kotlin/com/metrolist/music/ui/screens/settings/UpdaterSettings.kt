@@ -5,6 +5,11 @@
 
 package com.metrolist.music.ui.screens.settings
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -35,6 +40,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import com.metrolist.music.BuildConfig
 import com.metrolist.music.core.BuildConfig as CoreBuildConfig
@@ -59,6 +65,15 @@ fun UpdaterScreen(
 ) {
     val (checkForUpdates, onCheckForUpdatesChange) = rememberPreference(CheckForUpdatesKey, true)
     val (updateNotifications, onUpdateNotificationsChange) = rememberPreference(UpdateNotificationsEnabledKey, true)
+
+    val permissionLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestPermission(),
+        ) { isGranted ->
+            if (isGranted) {
+                onUpdateNotificationsChange(true)
+            }
+        }
 
     val context = LocalContext.current
     var isChecking by remember { mutableStateOf(false) }
@@ -159,10 +174,31 @@ fun UpdaterScreen(
                                 trailingContent = {
                                     Switch(
                                         checked = updateNotifications,
-                                        onCheckedChange = onUpdateNotificationsChange,
+                                        onCheckedChange = { checked ->
+                                            if (checked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+                                                    onUpdateNotificationsChange(true)
+                                                } else {
+                                                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                                }
+                                            } else {
+                                                onUpdateNotificationsChange(checked)
+                                            }
+                                        },
                                     )
                                 },
-                                onClick = { onUpdateNotificationsChange(!updateNotifications) },
+                                onClick = {
+                                    val newValue = !updateNotifications
+                                    if (newValue && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+                                            onUpdateNotificationsChange(true)
+                                        } else {
+                                            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                        }
+                                    } else {
+                                        onUpdateNotificationsChange(newValue)
+                                    }
+                                },
                             ),
                         )
                     }

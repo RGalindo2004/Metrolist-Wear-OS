@@ -238,6 +238,7 @@ jobs:
 
           {
             echo "Released by @${{ github.triggering_actor }}"
+            echo "VersionCode: ${{ needs.check_version.outputs.version_code }}"
             echo ""
             cat release_notes.md
           } > attributed_release_notes.md

@@ -33,9 +33,20 @@ object OTAUpdater {
                 val response = client.get(GITHUB_API_URL).bodyAsText()
                 val json = JSONObject(response)
                 val latestVersion = json.getString("tag_name").removePrefix("v")
+                val body = json.optString("body", "")
+                val latestVersionCode = "VersionCode:\\s*(\\d+)".toRegex()
+                    .find(body)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                
                 val currentVersion = BuildConfig.VERSION_NAME
+                val currentVersionCode = BuildConfig.VERSION_CODE
 
-                if (Updater.compareVersions(latestVersion, currentVersion) > 0) {
+                val hasUpdate = if (latestVersionCode > 0 && currentVersionCode > 0) {
+                    latestVersionCode > currentVersionCode
+                } else {
+                    Updater.compareVersions(latestVersion, currentVersion) > 0
+                }
+
+                if (hasUpdate) {
                     val assets = json.getJSONArray("assets")
                     var downloadUrl: String? = null
                     for (i in 0 until assets.length()) {

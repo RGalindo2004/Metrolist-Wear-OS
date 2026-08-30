@@ -33,8 +33,8 @@ android {
         applicationId = applicationIdOverride ?: baseApplicationId
         minSdk = 26
         targetSdk = 33
-        versionCode = 154
-        versionName = "13.6.5"
+        versionCode = 155
+        versionName = "1.0.0"
         resValue("string", "app_name", appNameOverride ?: "Metrolist")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

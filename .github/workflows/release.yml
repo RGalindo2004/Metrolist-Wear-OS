@@ -168,11 +168,21 @@ jobs:
           echo "APK renamed to: $TARGET_NAME"
           ls -la "$OUTPUT_DIR/out/"
 
+      - name: Build Wear APK
+        run: ./gradlew --console=plain :wear:assembleDebug --warning-mode summary
+
       - name: Upload Signed APKs
         uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.variant == 'gms' && 'Metrolist-with-Google-Cast' || matrix.variant == 'izzy' && 'Metrolist-izzy' || 'Metrolist' }}
           path: app/build/outputs/apk/${{ matrix.variant }}/release/out/*.apk
+
+      - name: Upload Wear APK
+        if: matrix.variant == 'foss'
+        uses: actions/upload-artifact@v6
+        with:
+          name: wear-debug
+          path: wear/build/outputs/apk/debug/wear-debug.apk
 
   create-release:
     needs: [check-version, build]

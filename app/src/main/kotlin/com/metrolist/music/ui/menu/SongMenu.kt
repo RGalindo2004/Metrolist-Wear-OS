@@ -703,75 +703,21 @@ fun SongMenu(
                             ),
                         )
                         // For episodes, use "Save for later" / "Remove from saved" (Episodes for Later playlist)
-                        // For regular songs, use "Add to library"
-                        if (song.song.isEpisode) {
-                            val isEpisodeSaved = song.song.inLibrary != null
-                            add(
-                                Material3MenuItemData(
-                                    title = {
-                                        Text(
-                                            text =
-                                                stringResource(
-                                                    if (isEpisodeSaved) {
-                                                        R.string.remove_episode_from_saved
-                                                    } else {
-                                                        R.string.save_episode_for_later
-                                                    },
-                                                ),
-                                        )
-                                    },
-                                    description = { Text(text = stringResource(R.string.episodes_for_later)) },
-                                    icon = {
-                                        Icon(
-                                            painter =
-                                                painterResource(
-                                                    if (isEpisodeSaved) {
-                                                        R.drawable.library_add_check
-                                                    } else {
-                                                        R.drawable.library_add
-                                                    },
-                                                ),
-                                            contentDescription = null,
-                                        )
-                                    },
-                                    onClick = {
-                                        coroutineScope.launch(Dispatchers.IO) {
-                                            val shouldBeSaved = !isEpisodeSaved
-
-                                            // Update local database first (optimistic update)
-                                            database.query {
-                                                update(
-                                                    song.song.copy(
-                                                        inLibrary = if (shouldBeSaved) LocalDateTime.now() else null,
-                                                        isEpisode = true,
-                                                    ),
-                                                )
-                                            }
-
-                                            // Sync with YouTube (handles login check internally)
-                                            val setVideoId = if (isEpisodeSaved) database.getSetVideoId(song.id)?.setVideoId else null
-                                            syncUtils.saveEpisode(song.id, shouldBeSaved, setVideoId)
-                                        }
-                                        onDismiss()
-                                    },
-                                ),
-                            )
-                        } else {
-                            add(
-                                Material3MenuItemData(
-                                    title = {
-                                        Text(
-                                            text =
-                                                stringResource(
-                                                    if (song.song.inLibrary == null) {
-                                                        R.string.add_to_library
-                                                    } else {
-                                                        R.string.remove_from_library
-                                                    },
-                                                ),
-                                        )
-                                    },
-                                    description = { Text(text = stringResource(R.string.add_to_library_desc)) },
+                        add(
+                            Material3MenuItemData(
+                                title = {
+                                    Text(
+                                        text =
+                                            stringResource(
+                                                if (song.song.inLibrary == null) {
+                                                    R.string.add_to_library
+                                                } else {
+                                                    R.string.remove_from_library
+                                                },
+                                            ),
+                                    )
+                                },
+                                description = { Text(text = stringResource(R.string.add_to_library_desc)) },
                                     icon = {
                                         Icon(
                                             painter =
@@ -803,7 +749,6 @@ fun SongMenu(
                                     },
                                 ),
                             )
-                        }
                         if (event != null) {
                             add(
                                 Material3MenuItemData(
@@ -817,7 +762,7 @@ fun SongMenu(
                                     onClick = {
                                         onDismiss()
                                         database.query {
-                                            delete(event)
+                                            event?.let { delete(it) }
                                         }
                                     },
                                 ),

@@ -603,28 +603,22 @@ fun AutoPlaylistScreen(
                             isActive = song.song.id == mediaMetadata?.id,
                             isPlaying = isPlaying,
                             showInLibraryIcon = true,
+                            onMenuClick = if (!inSelectMode) {
+                                {
+                                    menuState.show {
+                                        SongMenu(
+                                            originalSong = song,
+                                            onDismiss = menuState::dismiss,
+                                        )
+                                    }
+                                }
+                            } else null,
                             trailingContent = {
                                 if (inSelectMode) {
                                     Checkbox(
                                         checked = song.id in selection,
                                         onCheckedChange = onCheckedChange,
                                     )
-                                } else {
-                                    IconButton(
-                                        onClick = {
-                                            menuState.show {
-                                                SongMenu(
-                                                    originalSong = song,
-                                                    onDismiss = menuState::dismiss,
-                                                )
-                                            }
-                                        },
-                                    ) {
-                                        Icon(
-                                            painter = painterResource(R.drawable.more_vert),
-                                            contentDescription = null,
-                                        )
-                                    }
                                 }
                             },
                             modifier =

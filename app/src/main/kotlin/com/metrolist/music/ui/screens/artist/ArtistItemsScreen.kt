@@ -131,62 +131,53 @@ fun ArtistItemsScreen(
                             else -> false
                         },
                     isPlaying = isPlaying,
-                    trailingContent = {
-                        IconButton(
-                            onClick = {
-                                menuState.show {
-                                    when (item) {
-                                        is SongItem -> {
-                                            YouTubeSongMenu(
-                                                song = item,
-                                                onDismiss = menuState::dismiss,
-                                            )
-                                        }
-
-                                        is AlbumItem -> {
-                                            YouTubeAlbumMenu(
-                                                albumItem = item,
-                                                onDismiss = menuState::dismiss,
-                                            )
-                                        }
-
-                                        is ArtistItem -> {
-                                            YouTubeArtistMenu(
-                                                artist = item,
-                                                onDismiss = menuState::dismiss,
-                                            )
-                                        }
-
-                                        is PlaylistItem -> {
-                                            YouTubePlaylistMenu(
-                                                playlist = item,
-                                                coroutineScope = coroutineScope,
-                                                onDismiss = menuState::dismiss,
-                                            )
-                                        }
-
-                                        is PodcastItem -> {
-                                            YouTubePlaylistMenu(
-                                                playlist = item.asPlaylistItem(),
-                                                coroutineScope = coroutineScope,
-                                                onDismiss = menuState::dismiss,
-                                            )
-                                        }
-
-                                        is EpisodeItem -> {
-                                            YouTubeSongMenu(
-                                                song = item.asSongItem(),
-                                                onDismiss = menuState::dismiss,
-                                            )
-                                        }
-                                    }
+                    onMenuClick = {
+                        menuState.show {
+                            when (item) {
+                                is SongItem -> {
+                                    YouTubeSongMenu(
+                                        song = item,
+                                        onDismiss = menuState::dismiss,
+                                    )
                                 }
-                            },
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.more_vert),
-                                contentDescription = null,
-                            )
+
+                                is AlbumItem -> {
+                                    YouTubeAlbumMenu(
+                                        albumItem = item,
+                                        onDismiss = menuState::dismiss,
+                                    )
+                                }
+
+                                is ArtistItem -> {
+                                    YouTubeArtistMenu(
+                                        artist = item,
+                                        onDismiss = menuState::dismiss,
+                                    )
+                                }
+
+                                is PlaylistItem -> {
+                                    YouTubePlaylistMenu(
+                                        playlist = item,
+                                        coroutineScope = coroutineScope,
+                                        onDismiss = menuState::dismiss,
+                                    )
+                                }
+
+                                is PodcastItem -> {
+                                    YouTubePlaylistMenu(
+                                        playlist = item.asPlaylistItem(),
+                                        coroutineScope = coroutineScope,
+                                        onDismiss = menuState::dismiss,
+                                    )
+                                }
+
+                                is EpisodeItem -> {
+                                    YouTubeSongMenu(
+                                        song = item.asSongItem(),
+                                        onDismiss = menuState::dismiss,
+                                    )
+                                }
+                            }
                         }
                     },
                     modifier =

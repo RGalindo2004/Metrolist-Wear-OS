@@ -70,7 +70,9 @@ import com.metrolist.music.constants.AppLanguageKey
 import com.google.android.horologist.compose.layout.ScalingLazyColumn
 import com.google.android.horologist.compose.layout.rememberResponsiveColumnState
 import com.metrolist.innertube.YouTube
+import com.metrolist.innertube.models.Album
 import com.metrolist.innertube.models.AlbumItem
+import com.metrolist.innertube.models.Artist
 import com.metrolist.innertube.models.ArtistItem
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.WatchEndpoint
@@ -88,9 +90,12 @@ import com.metrolist.music.core.R
 import com.metrolist.music.db.entities.Playlist
 import com.metrolist.music.db.entities.PlaylistSong
 import com.metrolist.music.db.entities.Song
+import com.metrolist.music.db.entities.EventWithSong
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.playback.queues.ListQueue
+import com.metrolist.music.playback.queues.LocalAlbumRadio
+import com.metrolist.music.playback.queues.YouTubeAlbumRadio
 import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.utils.LoginHelper
 import com.metrolist.music.utils.dataStore
@@ -423,18 +428,31 @@ fun WearSearchScreen(
     }
 }
 
+<<<<<<< Updated upstream
+=======
+private enum class LoginMode { Token }
+
+>>>>>>> Stashed changes
 @OptIn(ExperimentalHorologistApi::class)
 @Composable
-fun WearLoginScreen() {
+fun WearLoginScreen(onDismiss: () -> Unit = {}) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val columnState = rememberResponsiveColumnState()
     val focusRequester = remember { FocusRequester() }
 
+<<<<<<< Updated upstream
+=======
+    var loginMode by remember { mutableStateOf(LoginMode.Token) }
+>>>>>>> Stashed changes
     var isLoading by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var serverUrl by remember { mutableStateOf<String?>(null) }
     
+<<<<<<< Updated upstream
+=======
+
+>>>>>>> Stashed changes
     fun getLocalIpAddress(): String? {
         return try {
             val interfaces = NetworkInterface.getNetworkInterfaces().toList()
@@ -482,8 +500,12 @@ fun WearLoginScreen() {
         val thread = thread {
             try {
                 serverSocket = try { ServerSocket(8080) } catch (e: Exception) { ServerSocket(0) }
+<<<<<<< Updated upstream
                 val port = serverSocket!!.localPort
                 
+=======
+                val port = serverSocket?.localPort ?: 8080
+>>>>>>> Stashed changes
                 if (ip == null) ip = getLocalIpAddress()
                 
                 if (ip != null) {
@@ -494,12 +516,16 @@ fun WearLoginScreen() {
                 }
                 
                 while (!Thread.currentThread().isInterrupted) {
+<<<<<<< Updated upstream
                     val client = try {
                         serverSocket!!.accept()
                     } catch (e: Exception) {
                         null
                     } ?: break
                     
+=======
+                    val client = try { serverSocket?.accept() } catch (e: Exception) { null } ?: break
+>>>>>>> Stashed changes
                     val reader = client.getInputStream().bufferedReader()
                     val firstLine = reader.readLine() ?: continue
                     
@@ -606,6 +632,7 @@ fun WearLoginScreen() {
                         }
                     }
                 }
+<<<<<<< Updated upstream
             } catch (e: Exception) {
                 Timber.tag("WearSyncServer").e(e)
             }
@@ -722,6 +749,80 @@ fun WearLoginScreen() {
                         )
                     }
                 }
+=======
+            } catch (e: Exception) { Timber.e(e) }
+        }
+        onDispose { thread.interrupt(); serverSocket?.close() }
+    }
+
+    ScalingLazyColumn(columnState = columnState, modifier = Modifier.fillMaxSize().focusRequester(focusRequester).focusable()) {
+        item { ListHeader { Text(stringResource(R.string.login)) } }
+
+        if (loginMode == LoginMode.Token) {
+            item {
+                Text(
+                    text = stringResource(R.string.wear_login_network_warning),
+                    style = MaterialTheme.typography.caption2,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colors.secondary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+
+            item {
+                Column(modifier = Modifier.padding(horizontal = 12.dp)) {
+                    Text(stringResource(R.string.wear_login_token_step1), style = MaterialTheme.typography.caption2)
+                    Text(stringResource(R.string.wear_login_token_step2), style = MaterialTheme.typography.caption2)
+                    Text(stringResource(R.string.wear_login_token_step3), style = MaterialTheme.typography.caption2)
+                }
+            }
+
+            item {
+                Chip(
+                    onClick = {
+                        val url = serverUrl ?: "https://music.youtube.com"
+                        coroutineScope.launch {
+                            try {
+                                val helper = RemoteActivityHelper(context, ContextCompat.getMainExecutor(context))
+                                helper.startRemoteActivity(Intent(Intent.ACTION_VIEW).setData(url.toUri()).addCategory(Intent.CATEGORY_BROWSABLE), null).await()
+                                Toast.makeText(context, "Abre el navegador en tu móvil", Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) { Timber.e(e) }
+                        }
+                    },
+                    label = { Text("Login on phone") },
+                    secondaryLabel = { Text("Open Local URL") },
+                    icon = { Icon(painterResource(R.drawable.login), null) },
+                    colors = ChipDefaults.primaryChipColors(),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp)
+                )
+            }
+
+            if (serverUrl != null) {
+                item { 
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        AsyncImage(
+                            model = "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=$serverUrl",
+                            contentDescription = "QR",
+                            modifier = Modifier.size(110.dp).clip(RoundedCornerShape(12.dp)).background(androidx.compose.ui.graphics.Color.White)
+                        )
+                    }
+                }
+                item { Text(serverUrl!!, style = MaterialTheme.typography.caption2, color = MaterialTheme.colors.primary, modifier = Modifier.padding(top = 4.dp)) }
+            }
+            item { CompactChip(onClick = onDismiss, label = { Text(stringResource(R.string.close)) }, modifier = Modifier.padding(top = 8.dp)) }
+        }
+
+        if (statusMessage != null) { item { Text(statusMessage!!, style = MaterialTheme.typography.caption2, textAlign = TextAlign.Center, modifier = Modifier.padding(16.dp)) } }
+        if (isLoading && accountInfo == null) { item { CircularProgressIndicator(modifier = Modifier.size(24.dp).padding(8.dp)) } }
+    }
+
+    if (accountInfo != null) {
+        Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colors.background), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(16.dp)) {
+                AsyncImage(model = accountInfo!!.thumbnailUrl, contentDescription = null, modifier = Modifier.size(64.dp).clip(CircleShape).background(MaterialTheme.colors.surface))
+                Spacer(Modifier.height(12.dp))
+                Text("Bienvenido,\n${accountInfo!!.name}", textAlign = TextAlign.Center, style = MaterialTheme.typography.title3, color = MaterialTheme.colors.primary)
+>>>>>>> Stashed changes
             }
         }
         
@@ -1617,6 +1718,7 @@ fun WearPlaylistSongsScreen(playlistId: String, onItemClick: () -> Unit = {}) {
     val columnState = rememberResponsiveColumnState()
     val playlistSongs by remember(playlistId) { database.playlistSongs(playlistId) }.collectAsStateWithLifecycle(initialValue = emptyList())
     val playlist by remember(playlistId) { database.playlist(playlistId) }.collectAsStateWithLifecycle(initialValue = null)
+    val shuffleModeEnabled by playerConnection?.shuffleModeEnabled?.collectAsStateWithLifecycle(initialValue = false) ?: remember { mutableStateOf(false) }
 
     val allDownloads by downloadUtil.downloads.collectAsStateWithLifecycle()
     val totalSongs = playlistSongs.size
@@ -1628,6 +1730,47 @@ fun WearPlaylistSongsScreen(playlistId: String, onItemClick: () -> Unit = {}) {
         item { ListHeader { Text(text = playlist?.title ?: stringResource(R.string.playlists)) } }
         
         if (totalSongs > 0) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = { playerConnection?.player?.shuffleModeEnabled = !shuffleModeEnabled },
+                        colors = if (shuffleModeEnabled)
+                            ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.primary, contentColor = MaterialTheme.colors.onPrimary)
+                        else
+                            ButtonDefaults.secondaryButtonColors(),
+                        modifier = Modifier.size(ButtonDefaults.DefaultButtonSize)
+                    ) {
+                        Icon(
+                            painter = painterResource(if (shuffleModeEnabled) R.drawable.shuffle_on else R.drawable.shuffle),
+                            contentDescription = stringResource(R.string.shuffle)
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            playlist?.playlist?.radioEndpointParams?.let { params ->
+                                playerConnection?.playQueue(YouTubeQueue(WatchEndpoint(playlistId = playlistId, params = params)))
+                            } ?: run {
+                                if (!playlistId.startsWith("LP")) {
+                                    playerConnection?.playQueue(YouTubeQueue(WatchEndpoint(playlistId = "RD$playlistId")))
+                                }
+                            }
+                            onItemClick()
+                        },
+                        colors = ButtonDefaults.secondaryButtonColors(),
+                        modifier = Modifier.size(ButtonDefaults.DefaultButtonSize)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.radio),
+                            contentDescription = stringResource(R.string.start_radio)
+                        )
+                    }
+                }
+            }
+            
             item {
                 BulkDownloadButton(
                     songs = playlistSongs.map { BulkDownloadItem(it.song.song.id, it.song.song.title, it.song.song.isDownloaded) },
@@ -1694,7 +1837,8 @@ fun WearAlbumSongsScreen(albumId: String, onItemClick: () -> Unit = {}) {
     val downloadUtil = LocalDownloadUtil.current
     val columnState = rememberResponsiveColumnState()
     val albumSongs by remember(albumId) { database.albumSongs(albumId) }.collectAsStateWithLifecycle(initialValue = emptyList())
-    val album by remember(albumId) { database.album(albumId) }.collectAsStateWithLifecycle(initialValue = null)
+    val album by remember(albumId) { database.albumWithSongs(albumId) }.collectAsStateWithLifecycle(initialValue = null)
+    val shuffleModeEnabled by playerConnection?.shuffleModeEnabled?.collectAsStateWithLifecycle(initialValue = false) ?: remember { mutableStateOf(false) }
 
     val allDownloads by downloadUtil.downloads.collectAsStateWithLifecycle()
     val totalSongs = albumSongs.size
@@ -1703,9 +1847,46 @@ fun WearAlbumSongsScreen(albumId: String, onItemClick: () -> Unit = {}) {
     }
 
     ScalingLazyColumn(columnState = columnState, modifier = Modifier.fillMaxSize()) {
-        item { ListHeader { Text(text = album?.title ?: stringResource(R.string.albums)) } }
+        item { ListHeader { Text(text = album?.album?.title ?: stringResource(R.string.albums)) } }
         
         if (totalSongs > 0) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = { playerConnection?.player?.shuffleModeEnabled = !shuffleModeEnabled },
+                        colors = if (shuffleModeEnabled)
+                            ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.primary, contentColor = MaterialTheme.colors.onPrimary)
+                        else
+                            ButtonDefaults.secondaryButtonColors(),
+                        modifier = Modifier.size(ButtonDefaults.DefaultButtonSize)
+                    ) {
+                        Icon(
+                            painter = painterResource(if (shuffleModeEnabled) R.drawable.shuffle_on else R.drawable.shuffle),
+                            contentDescription = stringResource(R.string.shuffle)
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            album?.let {
+                                playerConnection?.playQueue(LocalAlbumRadio(it))
+                                onItemClick()
+                            }
+                        },
+                        colors = ButtonDefaults.secondaryButtonColors(),
+                        modifier = Modifier.size(ButtonDefaults.DefaultButtonSize)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.radio),
+                            contentDescription = stringResource(R.string.start_radio)
+                        )
+                    }
+                }
+            }
+            
             item {
                 BulkDownloadButton(
                     songs = albumSongs.map { BulkDownloadItem(it.id, it.song.title, it.song.isDownloaded) },
@@ -1743,7 +1924,7 @@ fun WearAlbumSongsScreen(albumId: String, onItemClick: () -> Unit = {}) {
                     onClick = {
                         playerConnection?.playQueue(
                             ListQueue(
-                                title = album?.title,
+                                title = album?.album?.title,
                                 items = albumSongs.map { it.toMediaItem() },
                                 startIndex = albumSongs.indexOf(song)
                             )
@@ -1771,6 +1952,7 @@ fun WearArtistSongsScreen(artistId: String, onItemClick: () -> Unit = {}) {
     val columnState = rememberResponsiveColumnState()
     val artistSongs by remember(artistId) { database.artistSongsByCreateDateAsc(artistId) }.collectAsStateWithLifecycle(initialValue = emptyList())
     val artist by remember(artistId) { database.artist(artistId) }.collectAsStateWithLifecycle(initialValue = null)
+    val shuffleModeEnabled by playerConnection?.shuffleModeEnabled?.collectAsStateWithLifecycle(initialValue = false) ?: remember { mutableStateOf(false) }
 
     val allDownloads by downloadUtil.downloads.collectAsStateWithLifecycle()
     val totalSongs = artistSongs.size
@@ -1782,6 +1964,41 @@ fun WearArtistSongsScreen(artistId: String, onItemClick: () -> Unit = {}) {
         item { ListHeader { Text(text = artist?.artist?.name ?: stringResource(R.string.artists)) } }
         
         if (totalSongs > 0) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = { playerConnection?.player?.shuffleModeEnabled = !shuffleModeEnabled },
+                        colors = if (shuffleModeEnabled)
+                            ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.primary, contentColor = MaterialTheme.colors.onPrimary)
+                        else
+                            ButtonDefaults.secondaryButtonColors(),
+                        modifier = Modifier.size(ButtonDefaults.DefaultButtonSize)
+                    ) {
+                        Icon(
+                            painter = painterResource(if (shuffleModeEnabled) R.drawable.shuffle_on else R.drawable.shuffle),
+                            contentDescription = stringResource(R.string.shuffle)
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            playerConnection?.playQueue(YouTubeQueue(WatchEndpoint(playlistId = "RD$artistId")))
+                            onItemClick()
+                        },
+                        colors = ButtonDefaults.secondaryButtonColors(),
+                        modifier = Modifier.size(ButtonDefaults.DefaultButtonSize)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.radio),
+                            contentDescription = stringResource(R.string.start_radio)
+                        )
+                    }
+                }
+            }
+            
             item {
                 BulkDownloadButton(
                     songs = artistSongs.map { BulkDownloadItem(it.id, it.song.title, it.song.isDownloaded) },
@@ -1841,17 +2058,40 @@ fun WearArtistSongsScreen(artistId: String, onItemClick: () -> Unit = {}) {
 @Composable
 fun WearHistoryScreen(onItemClick: () -> Unit = {}) {
     val context = LocalContext.current
+    val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current
     val downloadUtil = LocalDownloadUtil.current
     val columnState = rememberResponsiveColumnState()
     val allDownloads by downloadUtil.downloads.collectAsStateWithLifecycle()
 
+    var historySource by remember { mutableStateOf(if (YouTube.cookie != null) HistorySource.REMOTE else HistorySource.LOCAL) }
+
     val historyPage by produceState<com.metrolist.innertube.pages.HistoryPage?>(initialValue = null) {
         value = YouTube.musicHistory().getOrNull()
     }
 
-    val songs = remember(historyPage) {
-        historyPage?.sections?.flatMap { it.songs }.orEmpty()
+    val localEvents by remember(database) {
+        database.events()
+    }.collectAsStateWithLifecycle(initialValue = emptyList())
+
+    val songs = remember(historySource, historyPage, localEvents) {
+        if (historySource == HistorySource.REMOTE) {
+            historyPage?.sections?.flatMap { it.songs }.orEmpty()
+        } else {
+            localEvents.map { eventWithSong ->
+                val song = eventWithSong.song
+                SongItem(
+                    id = song.id,
+                    title = song.title,
+                    artists = song.artists.map { Artist(id = it.id, name = it.name) },
+                    album = song.album?.let { Album(id = it.id, name = it.title) },
+                    duration = song.song.duration,
+                    thumbnail = song.thumbnailUrl ?: "",
+                    explicit = false,
+                    endpoint = WatchEndpoint(videoId = song.id)
+                )
+            }
+        }
     }
 
     val totalSongs = songs.size
@@ -1861,6 +2101,26 @@ fun WearHistoryScreen(onItemClick: () -> Unit = {}) {
 
     ScalingLazyColumn(columnState = columnState, modifier = Modifier.fillMaxSize()) {
         item { ListHeader { Text(text = stringResource(R.string.history)) } }
+
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)
+            ) {
+                CompactChip(
+                    onClick = { historySource = HistorySource.LOCAL },
+                    label = { Text(stringResource(R.string.local_history)) },
+                    colors = if (historySource == HistorySource.LOCAL) ChipDefaults.primaryChipColors() else ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.weight(1f)
+                )
+                CompactChip(
+                    onClick = { historySource = HistorySource.REMOTE },
+                    label = { Text(stringResource(R.string.remote_history)) },
+                    colors = if (historySource == HistorySource.REMOTE) ChipDefaults.primaryChipColors() else ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
 
         if (totalSongs > 0) {
             item {
@@ -1938,6 +2198,7 @@ fun WearOnlinePlaylistScreen(playlistId: String, onItemClick: () -> Unit = {}) {
     val downloadUtil = LocalDownloadUtil.current
     val columnState = rememberResponsiveColumnState()
     val playlistPage by produceState<com.metrolist.innertube.pages.PlaylistPage?>(initialValue = null) { value = YouTube.playlist(playlistId).getOrNull() }
+    val shuffleModeEnabled by playerConnection?.shuffleModeEnabled?.collectAsStateWithLifecycle(initialValue = false) ?: remember { mutableStateOf(false) }
 
     val allDownloads by downloadUtil.downloads.collectAsStateWithLifecycle()
     val songs = playlistPage?.songs.orEmpty()
@@ -1950,6 +2211,46 @@ fun WearOnlinePlaylistScreen(playlistId: String, onItemClick: () -> Unit = {}) {
         item { ListHeader { Text(text = playlistPage?.playlist?.title ?: stringResource(R.string.playlists)) } }
         
         if (totalSongs > 0) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = { playerConnection?.player?.shuffleModeEnabled = !shuffleModeEnabled },
+                        colors = if (shuffleModeEnabled)
+                            ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.primary, contentColor = MaterialTheme.colors.onPrimary)
+                        else
+                            ButtonDefaults.secondaryButtonColors(),
+                        modifier = Modifier.size(ButtonDefaults.DefaultButtonSize)
+                    ) {
+                        Icon(
+                            painter = painterResource(if (shuffleModeEnabled) R.drawable.shuffle_on else R.drawable.shuffle),
+                            contentDescription = stringResource(R.string.shuffle)
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            playlistPage?.playlist?.radioEndpoint?.let { radioEndpoint ->
+                                playerConnection?.playQueue(YouTubeQueue(radioEndpoint))
+                                onItemClick()
+                            } ?: run {
+                                playerConnection?.playQueue(YouTubeQueue(WatchEndpoint(playlistId = "RD$playlistId")))
+                                onItemClick()
+                            }
+                        },
+                        colors = ButtonDefaults.secondaryButtonColors(),
+                        modifier = Modifier.size(ButtonDefaults.DefaultButtonSize)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.radio),
+                            contentDescription = stringResource(R.string.start_radio)
+                        )
+                    }
+                }
+            }
+            
             item {
                 BulkDownloadButton(
                     songs = songs.map { BulkDownloadItem(it.id, it.title, false) },
@@ -2015,6 +2316,7 @@ fun WearOnlineAlbumScreen(albumId: String, onItemClick: () -> Unit = {}) {
     val downloadUtil = LocalDownloadUtil.current
     val columnState = rememberResponsiveColumnState()
     val albumPage by produceState<com.metrolist.innertube.pages.AlbumPage?>(initialValue = null) { value = YouTube.album(albumId).getOrNull() }
+    val shuffleModeEnabled by playerConnection?.shuffleModeEnabled?.collectAsStateWithLifecycle(initialValue = false) ?: remember { mutableStateOf(false) }
 
     val allDownloads by downloadUtil.downloads.collectAsStateWithLifecycle()
     val songs = albumPage?.songs.orEmpty()
@@ -2027,6 +2329,41 @@ fun WearOnlineAlbumScreen(albumId: String, onItemClick: () -> Unit = {}) {
         item { ListHeader { Text(text = albumPage?.album?.title ?: stringResource(R.string.albums)) } }
         
         if (totalSongs > 0) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = { playerConnection?.player?.shuffleModeEnabled = !shuffleModeEnabled },
+                        colors = if (shuffleModeEnabled)
+                            ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.primary, contentColor = MaterialTheme.colors.onPrimary)
+                        else
+                            ButtonDefaults.secondaryButtonColors(),
+                        modifier = Modifier.size(ButtonDefaults.DefaultButtonSize)
+                    ) {
+                        Icon(
+                            painter = painterResource(if (shuffleModeEnabled) R.drawable.shuffle_on else R.drawable.shuffle),
+                            contentDescription = stringResource(R.string.shuffle)
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            playerConnection?.playQueue(YouTubeAlbumRadio(albumId))
+                            onItemClick()
+                        },
+                        colors = ButtonDefaults.secondaryButtonColors(),
+                        modifier = Modifier.size(ButtonDefaults.DefaultButtonSize)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.radio),
+                            contentDescription = stringResource(R.string.start_radio)
+                        )
+                    }
+                }
+            }
+            
             item {
                 BulkDownloadButton(
                     songs = songs.map { BulkDownloadItem(it.id, it.title, false) },
@@ -2092,6 +2429,7 @@ fun WearOnlineArtistScreen(artistId: String, onItemClick: () -> Unit = {}) {
     val downloadUtil = LocalDownloadUtil.current
     val columnState = rememberResponsiveColumnState()
     val artistPage by produceState<com.metrolist.innertube.pages.ArtistPage?>(initialValue = null) { value = YouTube.artist(artistId).getOrNull() }
+    val shuffleModeEnabled by playerConnection?.shuffleModeEnabled?.collectAsStateWithLifecycle(initialValue = false) ?: remember { mutableStateOf(false) }
 
     val allDownloads by downloadUtil.downloads.collectAsStateWithLifecycle()
     val songs = artistPage?.sections?.flatMap { it.items.filterIsInstance<SongItem>() }.orEmpty()
@@ -2104,6 +2442,46 @@ fun WearOnlineArtistScreen(artistId: String, onItemClick: () -> Unit = {}) {
         item { ListHeader { Text(text = artistPage?.artist?.title ?: stringResource(R.string.artists)) } }
         
         if (totalSongs > 0) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = { playerConnection?.player?.shuffleModeEnabled = !shuffleModeEnabled },
+                        colors = if (shuffleModeEnabled)
+                            ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.primary, contentColor = MaterialTheme.colors.onPrimary)
+                        else
+                            ButtonDefaults.secondaryButtonColors(),
+                        modifier = Modifier.size(ButtonDefaults.DefaultButtonSize)
+                    ) {
+                        Icon(
+                            painter = painterResource(if (shuffleModeEnabled) R.drawable.shuffle_on else R.drawable.shuffle),
+                            contentDescription = stringResource(R.string.shuffle)
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            artistPage?.artist?.radioEndpoint?.let { radioEndpoint ->
+                                playerConnection?.playQueue(YouTubeQueue(radioEndpoint))
+                                onItemClick()
+                            } ?: run {
+                                playerConnection?.playQueue(YouTubeQueue(WatchEndpoint(playlistId = "RD$artistId")))
+                                onItemClick()
+                            }
+                        },
+                        colors = ButtonDefaults.secondaryButtonColors(),
+                        modifier = Modifier.size(ButtonDefaults.DefaultButtonSize)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.radio),
+                            contentDescription = stringResource(R.string.start_radio)
+                        )
+                    }
+                }
+            }
+            
             item {
                 BulkDownloadButton(
                     songs = songs.map { BulkDownloadItem(it.id, it.title, false) },

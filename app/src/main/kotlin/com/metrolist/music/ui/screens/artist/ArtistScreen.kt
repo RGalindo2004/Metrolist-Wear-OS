@@ -563,20 +563,11 @@ fun ArtistScreen(
                                 showInLibraryIcon = true,
                                 isActive = song.id == mediaMetadata?.id,
                                 isPlaying = isPlaying,
-                                trailingContent = {
-                                    IconButton(
-                                        onClick = {
-                                            menuState.show {
-                                                SongMenu(
-                                                    originalSong = song,
-                                                    onDismiss = menuState::dismiss,
-                                                )
-                                            }
-                                        },
-                                    ) {
-                                        Icon(
-                                            painter = painterResource(R.drawable.more_vert),
-                                            contentDescription = null,
+                                onMenuClick = {
+                                    menuState.show {
+                                        SongMenu(
+                                            originalSong = song,
+                                            onDismiss = menuState::dismiss,
                                         )
                                     }
                                 },
@@ -692,20 +683,11 @@ fun ArtistScreen(
                                     item = song as SongItem,
                                     isActive = mediaMetadata?.id == song.id,
                                     isPlaying = isPlaying,
-                                    trailingContent = {
-                                        IconButton(
-                                            onClick = {
-                                                menuState.show {
-                                                    YouTubeSongMenu(
-                                                        song = song,
-                                                        onDismiss = menuState::dismiss,
-                                                    )
-                                                }
-                                            },
-                                        ) {
-                                            Icon(
-                                                painter = painterResource(R.drawable.more_vert),
-                                                contentDescription = null,
+                                    onMenuClick = {
+                                        menuState.show {
+                                            YouTubeSongMenu(
+                                                song = song,
+                                                onDismiss = menuState::dismiss,
                                             )
                                         }
                                     },
@@ -758,6 +740,55 @@ fun ArtistScreen(
                                             isPlaying = isPlaying,
                                             coroutineScope = coroutineScope,
                                             thumbnailRatio = 1f, // Use square thumbnails for all items in horizontal scroll
+                                            onMenuClick = {
+                                                menuState.show {
+                                                    when (item) {
+                                                        is SongItem -> {
+                                                            YouTubeSongMenu(
+                                                                song = item,
+                                                                onDismiss = menuState::dismiss,
+                                                            )
+                                                        }
+
+                                                        is AlbumItem -> {
+                                                            YouTubeAlbumMenu(
+                                                                albumItem = item,
+                                                                onDismiss = menuState::dismiss,
+                                                            )
+                                                        }
+
+                                                        is ArtistItem -> {
+                                                            YouTubeArtistMenu(
+                                                                artist = item,
+                                                                onDismiss = menuState::dismiss,
+                                                            )
+                                                        }
+
+                                                        is PlaylistItem -> {
+                                                            YouTubePlaylistMenu(
+                                                                playlist = item,
+                                                                coroutineScope = coroutineScope,
+                                                                onDismiss = menuState::dismiss,
+                                                            )
+                                                        }
+
+                                                        is PodcastItem -> {
+                                                            YouTubePlaylistMenu(
+                                                                playlist = item.asPlaylistItem(),
+                                                                coroutineScope = coroutineScope,
+                                                                onDismiss = menuState::dismiss,
+                                                            )
+                                                        }
+
+                                                        is EpisodeItem -> {
+                                                            YouTubeSongMenu(
+                                                                song = item.asSongItem(),
+                                                                onDismiss = menuState::dismiss,
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            },
                                             modifier =
                                                 Modifier
                                                     .combinedClickable(

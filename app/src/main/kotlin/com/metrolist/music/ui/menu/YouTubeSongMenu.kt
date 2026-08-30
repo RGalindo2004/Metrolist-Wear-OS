@@ -585,7 +585,7 @@ fun YouTubeSongMenu(
                                 },
                                 icon = {
                                     Icon(
-                                        painter = painterResource(R.drawable.library_add_check),
+                                        painter = painterResource(R.drawable.offline),
                                         contentDescription = null
                                     )
                                 },

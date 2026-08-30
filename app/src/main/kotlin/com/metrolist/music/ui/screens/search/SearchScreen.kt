@@ -17,7 +17,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import com.metrolist.music.ui.component.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -229,7 +229,10 @@ fun SearchScreen(
 
                         Row {
                             if (query.text.isNotEmpty()) {
-                                IconButton(onClick = { query = TextFieldValue("") }) {
+                                IconButton(
+                    onClick = { query = TextFieldValue("") },
+                    onLongClick = {}
+                ) {
                                     Icon(
                                         painter = painterResource(R.drawable.close),
                                         contentDescription = null,
@@ -246,6 +249,7 @@ fun SearchScreen(
                                             SearchSource.ONLINE
                                         }
                                 },
+                                onLongClick = {}
                             ) {
                                 Icon(
                                     painter =
@@ -263,7 +267,10 @@ fun SearchScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = { navController.navigateUp() }) {
+                    IconButton(
+                    onClick = { navController.navigateUp() },
+                    onLongClick = {}
+                ) {
                         Icon(
                             painter = painterResource(R.drawable.arrow_back),
                             contentDescription = stringResource(R.string.dismiss),

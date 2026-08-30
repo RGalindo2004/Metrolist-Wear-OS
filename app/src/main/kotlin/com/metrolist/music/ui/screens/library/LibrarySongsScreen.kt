@@ -470,20 +470,11 @@ fun LibrarySongsScreen(
                     isPlaying = isPlaying,
                     showLikedIcon = true,
                     showDownloadIcon = filter != SongFilter.DOWNLOADED,
-                    trailingContent = {
-                        IconButton(
-                            onClick = {
-                                menuState.show {
-                                    SongMenu(
-                                        originalSong = song,
-                                        onDismiss = menuState::dismiss,
-                                    )
-                                }
-                            },
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.more_vert),
-                                contentDescription = null,
+                    onMenuClick = {
+                        menuState.show {
+                            SongMenu(
+                                originalSong = song,
+                                onDismiss = menuState::dismiss,
                             )
                         }
                     },

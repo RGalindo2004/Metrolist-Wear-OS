@@ -267,20 +267,11 @@ fun ChartsScreen(
                                             isActive = song.id == mediaMetadata?.id,
                                             isPlaying = isPlaying,
                                             isSwipeable = false,
-                                            trailingContent = {
-                                                IconButton(
-                                                    onClick = {
-                                                        menuState.show {
-                                                            YouTubeSongMenu(
-                                                                song = song,
-                                                                onDismiss = menuState::dismiss,
-                                                            )
-                                                        }
-                                                    },
-                                                ) {
-                                                    Icon(
-                                                        painter = painterResource(R.drawable.more_vert),
-                                                        contentDescription = null,
+                                            onMenuClick = {
+                                                menuState.show {
+                                                    YouTubeSongMenu(
+                                                        song = song,
+                                                        onDismiss = menuState::dismiss,
                                                     )
                                                 }
                                             },
@@ -341,6 +332,14 @@ fun ChartsScreen(
                                         isActive = video.id == mediaMetadata?.id,
                                         isPlaying = isPlaying,
                                         coroutineScope = coroutineScope,
+                                        onMenuClick = {
+                                            menuState.show {
+                                                YouTubeSongMenu(
+                                                    song = video,
+                                                    onDismiss = menuState::dismiss,
+                                                )
+                                            }
+                                        },
                                         modifier =
                                             Modifier
                                                 .combinedClickable(

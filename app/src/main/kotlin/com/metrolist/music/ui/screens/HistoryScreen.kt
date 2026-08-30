@@ -285,21 +285,12 @@ fun HistoryScreen(
                                     isActive = item.event.song.id == mediaMetadata?.id,
                                     isPlaying = isPlaying,
                                     showInLibraryIcon = true,
-                                    trailingContent = {
-                                        IconButton(
-                                            onClick = {
-                                                menuState.show {
-                                                    SongMenu(
-                                                        originalSong = item.event.song,
-                                                        event = item.event.event,
-                                                        onDismiss = menuState::dismiss,
-                                                    )
-                                                }
-                                            },
-                                        ) {
-                                            Icon(
-                                                painter = painterResource(R.drawable.more_vert),
-                                                contentDescription = null,
+                                    onMenuClick = {
+                                        menuState.show {
+                                            SongMenu(
+                                                originalSong = item.event.song,
+                                                event = item.event.event,
+                                                onDismiss = menuState::dismiss,
                                             )
                                         }
                                     },
@@ -332,23 +323,14 @@ fun HistoryScreen(
                                     item = item.song,
                                     isActive = item.song.id == mediaMetadata?.id,
                                     isPlaying = isPlaying,
-                                    trailingContent = {
-                                        IconButton(
-                                            onClick = {
-                                                menuState.show {
-                                                    YouTubeSongMenu(
-                                                        song = item.song,
-                                                        onDismiss = menuState::dismiss,
-                                                        onHistoryRemoved = {
-                                                            viewModel.fetchRemoteHistory()
-                                                        },
-                                                    )
-                                                }
-                                            },
-                                        ) {
-                                            Icon(
-                                                painter = painterResource(R.drawable.more_vert),
-                                                contentDescription = null,
+                                    onMenuClick = {
+                                        menuState.show {
+                                            YouTubeSongMenu(
+                                                song = item.song,
+                                                onDismiss = menuState::dismiss,
+                                                onHistoryRemoved = {
+                                                    viewModel.fetchRemoteHistory()
+                                                },
                                             )
                                         }
                                     },
@@ -401,23 +383,14 @@ fun HistoryScreen(
                             item = song,
                             isActive = song.id == mediaMetadata?.id,
                             isPlaying = isPlaying,
-                            trailingContent = {
-                                IconButton(
-                                    onClick = {
-                                        menuState.show {
-                                            YouTubeSongMenu(
-                                                song = song,
-                                                onDismiss = menuState::dismiss,
-                                                onHistoryRemoved = {
-                                                    viewModel.fetchRemoteHistory()
-                                                },
-                                            )
-                                        }
-                                    },
-                                ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.more_vert),
-                                        contentDescription = null,
+                            onMenuClick = {
+                                menuState.show {
+                                    YouTubeSongMenu(
+                                        song = song,
+                                        onDismiss = menuState::dismiss,
+                                        onHistoryRemoved = {
+                                            viewModel.fetchRemoteHistory()
+                                        },
                                     )
                                 }
                             },
@@ -479,29 +452,23 @@ fun HistoryScreen(
                             isActive = event.song.id == mediaMetadata?.id,
                             isPlaying = isPlaying,
                             showInLibraryIcon = true,
+                            onMenuClick = if (!inSelectMode) {
+                                {
+                                    menuState.show {
+                                        SongMenu(
+                                            originalSong = event.song,
+                                            event = event.event,
+                                            onDismiss = menuState::dismiss,
+                                        )
+                                    }
+                                }
+                            } else null,
                             trailingContent = {
                                 if (inSelectMode) {
                                     Checkbox(
                                         checked = event.event.id in selection,
                                         onCheckedChange = onCheckedChange,
                                     )
-                                } else {
-                                    IconButton(
-                                        onClick = {
-                                            menuState.show {
-                                                SongMenu(
-                                                    originalSong = event.song,
-                                                    event = event.event,
-                                                    onDismiss = menuState::dismiss,
-                                                )
-                                            }
-                                        },
-                                    ) {
-                                        Icon(
-                                            painter = painterResource(R.drawable.more_vert),
-                                            contentDescription = null,
-                                        )
-                                    }
                                 }
                             },
                             modifier =

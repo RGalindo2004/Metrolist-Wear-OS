@@ -31,7 +31,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import com.metrolist.music.ui.component.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -291,16 +291,7 @@ fun OnlineSearchResult(
                     else -> false
                 },
             isPlaying = isPlaying,
-            trailingContent = {
-                IconButton(
-                    onClick = longClick,
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.more_vert),
-                        contentDescription = null,
-                    )
-                }
-            },
+            onMenuClick = longClick,
             modifier =
                 Modifier
                     .combinedClickable(
@@ -384,6 +375,7 @@ fun OnlineSearchResult(
             leadingIcon = {
                 IconButton(
                     onClick = { navController.navigateUp() },
+                    onLongClick = {}
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.arrow_back),
@@ -398,6 +390,7 @@ fun OnlineSearchResult(
                         onClick = {
                             query = TextFieldValue("")
                         },
+                        onLongClick = {}
                     ) {
                         Icon(
                             painter = painterResource(R.drawable.close),

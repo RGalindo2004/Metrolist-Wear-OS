@@ -651,17 +651,6 @@ class MusicService :
                     actionFactory: MediaNotification.ActionFactory,
                     onNotificationChangedCallback: MediaNotification.Provider.Callback,
                 ): MediaNotification {
-                    if (isWatch) {
-                        val notification =
-                            NotificationCompat.Builder(this@MusicService, CHANNEL_ID)
-                                .setSmallIcon(R.drawable.small_icon)
-                                .setPriority(NotificationCompat.PRIORITY_MIN)
-                                .setSilent(true)
-                                .build()
-                        latestMediaNotification = notification
-                        return MediaNotification(NOTIFICATION_ID, notification)
-                    }
-
                     val trackingCallback =
                         MediaNotification.Provider.Callback { notification ->
                             latestMediaNotification = notification.notification
@@ -686,11 +675,7 @@ class MusicService :
                 ): Boolean = defaultMediaNotificationProvider.handleCustomCommand(session, action, extras)
 
                 override fun getNotificationChannelInfo(): MediaNotification.Provider.NotificationChannelInfo =
-                    if (isWatch) {
-                        MediaNotification.Provider.NotificationChannelInfo(CHANNEL_ID, getString(R.string.music_player))
-                    } else {
-                        defaultMediaNotificationProvider.notificationChannelInfo
-                    }
+                    defaultMediaNotificationProvider.notificationChannelInfo
             },
         )
         player = createExoPlayer(prefs = startupPrefs!!)
@@ -4047,10 +4032,11 @@ class MusicService :
 
         if (playbackStats.totalPlayTimeMs >= historyDurationMs) {
             scope.launch(Dispatchers.IO) {
+                val playlistId = mediaItem.mediaMetadata.extras?.getString("playlist_id")
                 val playbackUrl =
                     playbackUrlCache[cacheKey(mediaItem.mediaId)]
                         ?: YTPlayerUtils
-                            .playerResponseForMetadata(mediaItem.mediaId, null)
+                            .playerResponseForMetadata(mediaItem.mediaId, playlistId)
                             .getOrNull()
                             ?.playbackTracking
                             ?.videostatsPlaybackUrl
@@ -4059,9 +4045,15 @@ class MusicService :
                     Timber.tag(TAG).w("No playback tracking URL available for $mediaItem.mediaId, skipping YouTube history registration")
                     return@launch
                 }
+                
+                Timber.tag(TAG).d("Registering YouTube history for $mediaItem.mediaId (playlistId: $playlistId)")
                 YouTube
-                    .registerPlayback(null, playbackUrl)
+                    .registerPlayback(playlistId, playbackUrl)
+                    .onSuccess {
+                        Timber.tag(TAG).d("Successfully registered YouTube history for $mediaItem.mediaId")
+                    }
                     .onFailure {
+                        Timber.tag(TAG).e(it, "Failed to register YouTube history for $mediaItem.mediaId")
                         reportException(it)
                     }
             }
@@ -4176,7 +4168,7 @@ class MusicService :
             NotificationChannel(
                 CHANNEL_ID,
                 getString(R.string.music_player),
-                if (isWatch) NotificationManager.IMPORTANCE_MIN else NotificationManager.IMPORTANCE_LOW,
+                NotificationManager.IMPORTANCE_LOW,
             ),
         )
     }

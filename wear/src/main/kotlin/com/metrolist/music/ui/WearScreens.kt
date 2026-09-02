@@ -86,6 +86,7 @@ import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.queues.YouTubeAlbumRadio
 import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.utils.GoogleDeviceAuth
+import com.metrolist.music.utils.OTAUpdater
 import com.metrolist.music.utils.LoginHelper
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.rememberPreference
@@ -688,12 +689,39 @@ fun WearLoginScreen(onDismiss: () -> Unit = {}) {
                                 context.safeDataStoreEdit { it[InnerTubeCookieKey] = cookie }
                                 statusMessage = "Login successful! Restarting..."
                                 delay(2000)
-                                if (context is Activity) context.recreate()
+                                if (context is Activity) {
+                                    val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                                    intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                                    context.startActivity(intent)
+                                    Runtime.getRuntime().exit(0)
+                                }
                             }
                         }
                         
-                        val response = "<html><body><h1>Metrolist Wear Login</h1><p>Check your watch.</p></body></html>"
-                        client.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n$response".toByteArray())
+                        val response = """
+                            <html>
+                            <head>
+                                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                <style>
+                                    body { font-family: sans-serif; padding: 20px; background: #121212; color: white; text-align: center; }
+                                    textarea { width: 100%; height: 120px; margin: 10px 0; background: #222; color: white; border: 1px solid #444; border-radius: 8px; padding: 10px; font-size: 14px; }
+                                    button { background: #BB86FC; color: black; border: none; padding: 12px 24px; border-radius: 20px; font-weight: bold; cursor: pointer; font-size: 16px; width: 100%; }
+                                    h1 { color: #BB86FC; margin-bottom: 20px; }
+                                    p { color: #aaa; margin-bottom: 20px; }
+                                </style>
+                            </head>
+                            <body>
+                                <h1>Metrolist Login</h1>
+                                <p>Copia y pega tu cookie de InnerTube aquí:</p>
+                                <form action="/" method="GET">
+                                    <textarea name="cookie" placeholder="Ej: VISITOR_INFO1_LIVE=...; SID=..."></textarea>
+                                    <br>
+                                    <button type="submit">INICIAR SESIÓN EN EL RELOJ</button>
+                                </form>
+                            </body>
+                            </html>
+                        """.trimIndent()
+                        client.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n$response".toByteArray())
                         client.close()
                     }
                 }
@@ -813,11 +841,53 @@ fun WearLoginScreen(onDismiss: () -> Unit = {}) {
                 LoginMode.Token -> {
                     item {
                         Text(
-                            text = if (serverUrl != null) "Open on phone:\n$serverUrl" else "Starting server...",
+                            text = if (serverUrl != null) "Abre este enlace en tu celular:" else "Iniciando servidor...",
                             style = MaterialTheme.typography.caption2,
                             textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(16.dp)
+                            modifier = Modifier.padding(top = 16.dp, start = 16.dp, end = 16.dp)
                         )
+                    }
+                    if (serverUrl != null) {
+                        item {
+                            Box(Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
+                                AsyncImage(
+                                    model = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${serverUrl}",
+                                    contentDescription = "QR Login",
+                                    modifier = Modifier.size(100.dp).clip(RoundedCornerShape(8.dp))
+                                )
+                            }
+                        }
+                        item {
+                            val remoteActivityHelper = remember { RemoteActivityHelper(context) }
+                            Button(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        try {
+                                            remoteActivityHelper.startRemoteActivity(
+                                                Intent(Intent.ACTION_VIEW).apply {
+                                                    data = serverUrl!!.toUri()
+                                                    addCategory(Intent.CATEGORY_BROWSABLE)
+                                                }
+                                            ).await()
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Error al abrir en el celular", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                            ) {
+                                Text("Abrir en Celular", fontSize = 12.sp)
+                            }
+                        }
+                        item {
+                            Text(
+                                text = serverUrl!!,
+                                style = MaterialTheme.typography.caption3,
+                                color = MaterialTheme.colors.secondary,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(16.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -1665,11 +1735,15 @@ fun WearSettingsScreen(
         item { ListHeader { Text(stringResource(R.string.about), style = MaterialTheme.typography.caption2) } }
         item {
             Chip(
-                onClick = {},
+                onClick = {
+                    coroutineScope.launch {
+                        OTAUpdater.checkAndUpdate(context)
+                    }
+                },
                 label = { Text(stringResource(R.string.app_version)) },
                 secondaryLabel = { Text(BuildConfig.VERSION_NAME) },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = false
+                icon = { Icon(painterResource(R.drawable.update), contentDescription = null) },
+                modifier = Modifier.fillMaxWidth()
             )
         }
         item { Spacer(Modifier.height(40.dp)) }
@@ -1735,7 +1809,7 @@ fun WearVolumeScreen() {
     val audioManager = context.getSystemService<AudioManager>()!!
     val columnState = rememberResponsiveColumnState()
     
-    var volume by remember { mutableLongStateOf(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toLong()) }
+    var volume by remember { mutableStateOf(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()) }
     val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
 
     ScalingLazyColumn(
@@ -1745,9 +1819,9 @@ fun WearVolumeScreen() {
         item { ListHeader { Text(stringResource(R.string.volume)) } }
         item {
             InlineSlider(
-                value = volume.toFloat(),
+                value = volume,
                 onValueChange = { 
-                    volume = it.toLong()
+                    volume = it
                     audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, volume.toInt(), 0)
                 },
                 valueRange = 0f..maxVolume.toFloat(),

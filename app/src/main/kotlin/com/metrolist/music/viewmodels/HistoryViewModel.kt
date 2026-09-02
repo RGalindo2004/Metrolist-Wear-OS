@@ -128,6 +128,15 @@ constructor(
         fetchRemoteHistory()
     }
 
+    fun deleteHistory(ids: List<Long>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val allEvents = events.value.values.flatten()
+            database.transaction {
+                allEvents.filter { it.event.id in ids }.forEach { delete(it.event) }
+            }
+        }
+    }
+
     fun fetchRemoteHistory() {
         viewModelScope.launch(Dispatchers.IO) {
             YouTube.musicHistory().onSuccess {

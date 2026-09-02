@@ -451,8 +451,16 @@ fun AlbumScreen(
                                     onLongClick = {
                                         if (!inSelectMode) {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            inSelectMode = true
-                                            onCheckedChange(true)
+                                            menuState.show {
+                                                SongMenu(
+                                                    originalSong = song,
+                                                    onDismiss = menuState::dismiss,
+                                                    onSelect = {
+                                                        inSelectMode = true
+                                                        onCheckedChange(true)
+                                                    }
+                                                )
+                                            }
                                         }
                                     },
                                 ),

@@ -3,6 +3,10 @@
     <string name="local_history">Local</string>
     <string name="remote_history">Remote</string>
     <string name="history_both">Both</string>
+    <string name="welcome">Welcome!</string>
+    <string name="welcome_user">Welcome, %1$s!</string>
+    <string name="for_you">For you</string>
+    <string name="listen_again">Listen again</string>
 
     <string name="charts">Charts</string>
     <string name="mixes">Mixes</string>

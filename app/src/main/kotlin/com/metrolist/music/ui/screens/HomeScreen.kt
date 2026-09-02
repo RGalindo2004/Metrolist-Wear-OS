@@ -214,6 +214,8 @@ fun CommunityPlaylistCard(
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current
     val listenTogetherManager = LocalListenTogetherManager.current
+    val haptic = LocalHapticFeedback.current
+    val menuState = LocalMenuState.current
     val isListenTogetherGuest = listenTogetherManager?.let { it.isInRoom && !it.isHost } ?: false
     val scope = rememberCoroutineScope()
     val isDark = isSystemInDarkTheme()
@@ -355,7 +357,18 @@ fun CommunityPlaylistCard(
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .combinedClickable(onClick = { onSongClick(song) }),
+                                .combinedClickable(
+                                    onClick = { onSongClick(song) },
+                                    onLongClick = {
+                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                        menuState.show {
+                                            YouTubeSongMenu(
+                                                song = song,
+                                                onDismiss = menuState::dismiss,
+                                            )
+                                        }
+                                    }
+                                ),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {

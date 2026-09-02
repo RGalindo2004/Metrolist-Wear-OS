@@ -299,9 +299,17 @@ fun OnlinePlaylistScreen(
                                         onLongClick = {
                                             if (!inSelectMode) {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                inSelectMode = true
-                                                onCheckedChange(true)
-                                                selectionAnchorSongId = songItem.id
+                                                menuState.show {
+                                                    YouTubeSongMenu(
+                                                        song = songItem,
+                                                        onDismiss = menuState::dismiss,
+                                                        onSelect = {
+                                                            inSelectMode = true
+                                                            onCheckedChange(true)
+                                                            selectionAnchorSongId = songItem.id
+                                                        }
+                                                    )
+                                                }
                                             } else {
                                                 val anchorIndex =
                                                     selectionAnchorSongId?.let { anchorSongId ->

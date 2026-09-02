@@ -2084,13 +2084,13 @@ class MusicService :
             }
         }
 
-        val insertIndex = player.currentMediaItemIndex + 1
+        val currentIndex = player.currentMediaItemIndex
+        val insertIndex = if (currentIndex == C.INDEX_UNSET) player.mediaItemCount else (currentIndex + 1).coerceAtMost(player.mediaItemCount)
         val shuffleEnabled = player.shuffleModeEnabled
 
         // Insert items immediately after the current item in the window/index space
         player.addMediaItems(insertIndex, items)
-        player.prepare()
-
+        
         if (shuffleEnabled) {
             // Rebuild shuffle order so that newly inserted items are played next
             val timeline = player.currentTimeline
@@ -2150,29 +2150,8 @@ class MusicService :
     }
 
     fun addToQueue(items: List<MediaItem>) {
-        if (dataStore.get(PreventDuplicateTracksInQueueKey, false)) {
-            val itemIds = items.map { it.mediaId }.toSet()
-            val indicesToRemove = mutableListOf<Int>()
-            val currentIndex = player.currentMediaItemIndex
-
-            for (i in 0 until player.mediaItemCount) {
-                if (i != currentIndex && player.getMediaItemAt(i).mediaId in itemIds) {
-                    indicesToRemove.add(i)
-                }
-            }
-
-            // Remove from highest index to lowest to maintain index stability
-            indicesToRemove.sortedDescending().forEach { index ->
-                player.removeMediaItem(index)
-            }
-        }
-
-        player.addMediaItems(items)
-        if (player.shuffleModeEnabled) {
-            val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
-            applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, shufflePlaylistFirst)
-        }
-        player.prepare()
+        // User request: Always add after current song instead of at the end
+        playNext(items)
     }
 
     fun toggleLibrary() {

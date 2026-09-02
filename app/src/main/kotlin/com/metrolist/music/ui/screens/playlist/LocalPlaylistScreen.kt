@@ -671,9 +671,19 @@ fun LocalPlaylistScreen(
                                         onLongClick = {
                                             if (!inSelectMode) {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                inSelectMode = true
-                                                onCheckedChange(true)
-                                                selectionAnchorMapId = song.map.id
+                                                menuState.show {
+                                                    SongMenu(
+                                                        originalSong = song.song,
+                                                        playlistSong = song,
+                                                        playlistBrowseId = playlist?.playlist?.browseId,
+                                                        onDismiss = menuState::dismiss,
+                                                        onSelect = {
+                                                            inSelectMode = true
+                                                            onCheckedChange(true)
+                                                            selectionAnchorMapId = song.map.id
+                                                        }
+                                                    )
+                                                }
                                             } else {
                                                 val anchorIndex =
                                                     selectionAnchorMapId?.let { anchorMapId ->

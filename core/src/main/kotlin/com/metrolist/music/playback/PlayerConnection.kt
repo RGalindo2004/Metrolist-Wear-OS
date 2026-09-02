@@ -310,7 +310,8 @@ class PlayerConnection(
             return
         }
         try {
-            service.addToQueue(items)
+            // Per user request, "Add to Queue" should behave like "Play Next"
+            service.playNext(items)
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "Error in addToQueue")
             throw e

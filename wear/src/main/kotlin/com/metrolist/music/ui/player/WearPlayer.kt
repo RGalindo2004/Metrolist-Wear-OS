@@ -1,8 +1,11 @@
 package com.metrolist.music.ui.player
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -16,8 +19,12 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -31,8 +38,10 @@ import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
 import androidx.wear.compose.foundation.ExperimentalWearFoundationApi
+import androidx.wear.compose.foundation.lazy.items
 import androidx.wear.compose.foundation.lazy.itemsIndexed
 import androidx.wear.compose.material.*
+import androidx.wear.compose.material.dialog.Dialog
 import coil3.compose.AsyncImage
 import com.google.android.horologist.annotations.ExperimentalHorologistApi
 import com.google.android.horologist.compose.layout.ScalingLazyColumn
@@ -46,9 +55,14 @@ import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.core.R
 import com.metrolist.music.extensions.metadata
 import com.metrolist.music.models.MediaMetadata
+import com.metrolist.music.viewmodels.WearHomeViewModel
 import com.metrolist.music.playback.ExoDownloadService
+import com.metrolist.music.ui.LocalWearSongMenuState
 import com.metrolist.music.utils.dataStore
+import com.metrolist.music.utils.resize
 import com.metrolist.music.constants.SleepTimerDefaultKey
+import com.metrolist.music.constants.AccountNameKey
+import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -68,12 +82,12 @@ fun WearMusicPlayer(
     onNavigateToDownloads: () -> Unit,
     onNavigateToHistory: () -> Unit,
     onNavigateToVolume: () -> Unit,
-    onNavigateToQueue: () -> Unit
+    onNavigateToQueue: () -> Unit,
+    onNavigateToHomeSection: (String) -> Unit
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val downloadUtil = LocalDownloadUtil.current
     val pagerState = rememberPagerState(initialPage = 1) { 3 }
-    val coroutineScope = rememberCoroutineScope()
     
     val mediaMetadata by playerConnection.mediaMetadata.collectAsStateWithLifecycle()
     val isPlaying by playerConnection.isPlaying.collectAsStateWithLifecycle()
@@ -103,11 +117,8 @@ fun WearMusicPlayer(
                 onNavigateToLiked = onNavigateToLiked,
                 onNavigateToDownloads = onNavigateToDownloads,
                 onNavigateToHistory = onNavigateToHistory,
-                onNavigateToQueue = {
-                    coroutineScope.launch {
-                        pagerState.animateScrollToPage(0)
-                    }
-                },
+                onNavigateToQueue = onNavigateToQueue,
+                onNavigateToHomeSection = onNavigateToHomeSection,
                 metadata = mediaMetadata,
                 currentSong = currentSong,
                 download = download
@@ -124,204 +135,206 @@ fun NowPlayingScreen(
     playerConnection: com.metrolist.music.playback.PlayerConnection,
     onNavigateToVolume: () -> Unit
 ) {
-    val context = LocalContext.current
     val batterySaver = LocalBatterySaverMode.current
-    
     val currentSong by playerConnection.currentSong.collectAsStateWithLifecycle()
-    
-    // Sleep timer duration from DataStore
-    val sleepDuration by remember {
-        context.dataStore.data.map { it[SleepTimerDefaultKey] ?: 30f }
-    }.collectAsStateWithLifecycle(initialValue = 30f)
+    val isLiked = currentSong?.song?.liked == true
+    var showSleepTimerDialog by remember { mutableStateOf(false) }
 
-    // Progress logic (polling current position)
-    var position by remember { mutableLongStateOf(0L) }
+    val focusRequester = remember { FocusRequester() }
+    val player = playerConnection.player
+    
+    var currentPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
 
-    LaunchedEffect(isPlaying, batterySaver) {
-        if (isPlaying) {
-            while (isActive) {
-                position = playerConnection.player.currentPosition
-                playerConnection.player.duration.takeIf { it > 0 }?.let { duration = it }
-                delay(if (batterySaver) 2000 else 500)
+    LaunchedEffect(isPlaying, metadata) {
+        while (isActive) {
+            if (isPlaying) {
+                currentPosition = player.currentPosition
+                duration = if (player.duration > 0) player.duration else 0L
+            }
+            delay(500)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onRotaryScrollEvent {
+                if (it.verticalScrollPixels > 0) {
+                    playerConnection.seekToNext()
+                } else if (it.verticalScrollPixels < 0) {
+                    playerConnection.seekToPrevious()
+                }
+                true
+            }
+            .focusRequester(focusRequester)
+            .focusable(),
+        contentAlignment = Alignment.Center
+    ) {
+        // Background Artwork with Blur/Fade
+        if (!batterySaver && metadata != null) {
+            AsyncImage(
+                model = metadata.thumbnailUrl,
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .alpha(0.2f),
+                contentScale = ContentScale.Crop
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))
+                        )
+                    )
+            )
+        }
+
+        // Circular Progress Indicator (Subtle background)
+        if (duration > 0) {
+            CircularProgressIndicator(
+                progress = (currentPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f),
+                modifier = Modifier.fillMaxSize(),
+                strokeWidth = 2.dp,
+                indicatorColor = MaterialTheme.colors.primary.copy(alpha = 0.7f),
+                trackColor = MaterialTheme.colors.onSurface.copy(alpha = 0.05f)
+            )
+        }
+
+        // Middle Section: Controls (Geometric Center)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterHorizontally),
+            modifier = Modifier.wrapContentSize()
+        ) {
+            SeekToPreviousButton(
+                onClick = { playerConnection.seekToPrevious() },
+                modifier = Modifier.size(ButtonDefaults.SmallButtonSize)
+            )
+
+            PlayPauseButton(
+                onPlayClick = { playerConnection.play() },
+                onPauseClick = { playerConnection.pause() },
+                playing = isPlaying,
+                modifier = Modifier.size(ButtonDefaults.LargeButtonSize)
+            )
+
+            SeekToNextButton(
+                onClick = { playerConnection.seekToNext() },
+                modifier = Modifier.size(ButtonDefaults.SmallButtonSize)
+            )
+        }
+
+        // Top Section: Metadata
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter)
+                .padding(top = 26.dp)
+                .padding(horizontal = 30.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = metadata?.title ?: stringResource(R.string.untitled),
+                style = MaterialTheme.typography.title3.copy(fontWeight = FontWeight.Bold),
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                modifier = Modifier.basicMarquee()
+            )
+            Text(
+                text = metadata?.artists?.joinToString { it.name } ?: "",
+                style = MaterialTheme.typography.caption2,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                color = MaterialTheme.colors.secondary,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+
+        // Bottom Section: Utility Buttons
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Like Button
+            Button(
+                onClick = { playerConnection.toggleLike() },
+                modifier = Modifier.size(36.dp),
+                colors = ButtonDefaults.secondaryButtonColors()
+            ) {
+                Icon(
+                    painter = painterResource(if (isLiked) R.drawable.ic_heart else R.drawable.ic_heart_outline),
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = if (isLiked) Color.Red else Color.White
+                )
+            }
+
+            // Volume Button
+            Button(
+                onClick = onNavigateToVolume,
+                modifier = Modifier.size(36.dp),
+                colors = ButtonDefaults.secondaryButtonColors()
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.volume_up),
+                    contentDescription = stringResource(R.string.volume),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            // Sleep Button
+            Button(
+                onClick = { showSleepTimerDialog = true },
+                modifier = Modifier.size(36.dp),
+                colors = ButtonDefaults.secondaryButtonColors()
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.timer),
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
             }
         }
     }
 
-    val effectiveDuration = if (duration > 0) duration else (metadata?.duration?.toLong()?.times(1000L) ?: 0L)
-    val progress = if (effectiveDuration > 0) position.toFloat() / effectiveDuration.toFloat() else 0f
-
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        // Background Album Art with Scrim (Disabled in Battery Saver)
-        if (!batterySaver) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                metadata?.thumbnailUrl?.let { url ->
-                    AsyncImage(
-                        model = url,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .alpha(0.35f)
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Black.copy(alpha = 0.4f),
-                                    Color.Transparent,
-                                    Color.Black.copy(alpha = 0.7f)
-                                )
-                            )
-                        )
-                )
-            }
-        } else {
-            // Simple black background in battery saver
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black))
-        }
-
-        // Integrated Progress Ring
-        CircularProgressIndicator(
-            progress = progress,
-            modifier = Modifier.fillMaxSize().padding(4.dp),
-            strokeWidth = 3.dp,
-            indicatorColor = MaterialTheme.colors.primary,
-            trackColor = MaterialTheme.colors.onSurface.copy(alpha = 0.15f)
-        )
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
+    if (showSleepTimerDialog) {
+        Dialog(
+            showDialog = showSleepTimerDialog,
+            onDismissRequest = { showSleepTimerDialog = false }
         ) {
-            // Track Info Section (Top)
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(top = 28.dp)
-            ) {
-                Text(
-                    text = metadata?.title ?: stringResource(R.string.no_song_playing),
-                    style = MaterialTheme.typography.title3.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.1.sp
-                    ),
-                    maxLines = 1,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .then(if (batterySaver) Modifier else Modifier.basicMarquee(iterations = Int.MAX_VALUE))
-                )
-                
-                Text(
-                    text = metadata?.artists?.joinToString { it.name } ?: stringResource(R.string.widget_recognizer_unknown_artist),
-                    style = MaterialTheme.typography.caption2.copy(
-                        color = MaterialTheme.colors.secondary,
-                        fontWeight = FontWeight.Medium
-                    ),
-                    maxLines = 1,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .then(if (batterySaver) Modifier else Modifier.basicMarquee(iterations = Int.MAX_VALUE))
-                )
-            }
-
-            // Main Media Controls (Center)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                val canSkipPrevious by playerConnection.canSkipPrevious.collectAsStateWithLifecycle()
-                SeekToPreviousButton(
-                    onClick = { playerConnection.seekToPrevious() },
-                    enabled = canSkipPrevious,
-                    modifier = Modifier.size(36.dp)
-                )
-
-                PlayPauseButton(
-                    onPlayClick = { playerConnection.play() },
-                    onPauseClick = { playerConnection.pause() },
-                    playing = isPlaying,
-                    modifier = Modifier.size(60.dp)
-                )
-
-                val canSkipNext by playerConnection.canSkipNext.collectAsStateWithLifecycle()
-                SeekToNextButton(
-                    onClick = { playerConnection.seekToNext() },
-                    enabled = canSkipNext,
-                    modifier = Modifier.size(36.dp)
-                )
-            }
-
-            // Bottom Action Bar
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 24.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Like Button
-                val isLiked = currentSong?.song?.liked == true
-                Button(
-                    onClick = { playerConnection.toggleLike() },
-                    colors = ButtonDefaults.secondaryButtonColors(),
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(if (isLiked) R.drawable.ic_heart else R.drawable.ic_heart_outline),
-                        contentDescription = null,
-                        tint = if (isLiked) MaterialTheme.colors.error else MaterialTheme.colors.onSurface,
-                        modifier = Modifier.size(18.dp)
+            val columnState = rememberResponsiveColumnState()
+            ScalingLazyColumn(columnState = columnState) {
+                item { ListHeader { Text(stringResource(R.string.sleep_timer)) } }
+                items(listOf(5, 10, 15, 30, 45, 60)) { mins ->
+                    Chip(
+                        onClick = {
+                            playerConnection.service.sleepTimer?.start(mins)
+                            showSleepTimerDialog = false
+                        },
+                        label = { Text("$mins min") },
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                // Volume Button
-                Button(
-                    onClick = onNavigateToVolume,
-                    colors = ButtonDefaults.secondaryButtonColors(),
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.volume_up),
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                // Sleep Button
-                val isSleepActive = playerConnection.service.sleepTimer?.isActive == true
-                Button(
-                    onClick = { 
-                        if (isSleepActive) {
+                item {
+                    Chip(
+                        onClick = {
                             playerConnection.service.sleepTimer?.clear()
-                        } else {
-                            playerConnection.service.sleepTimer?.start(sleepDuration.toInt())
-                        }
-                    },
-                    colors = if (isSleepActive)
-                        ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.secondary, contentColor = MaterialTheme.colors.onSecondary)
-                    else
-                        ButtonDefaults.secondaryButtonColors(),
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(if (isSleepActive) R.drawable.bedtime else R.drawable.timer),
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                            showSleepTimerDialog = false
+                        },
+                        label = { Text(stringResource(R.string.reset)) },
+                        colors = ChipDefaults.secondaryChipColors(),
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             }
@@ -339,13 +352,19 @@ fun WearOptionsPage(
     onNavigateToDownloads: () -> Unit,
     onNavigateToHistory: () -> Unit,
     onNavigateToQueue: () -> Unit,
+    onNavigateToHomeSection: (String) -> Unit,
     metadata: MediaMetadata?,
     currentSong: com.metrolist.music.db.entities.Song?,
     download: Download?
 ) {
     val context = LocalContext.current
     val columnState = rememberResponsiveColumnState()
+    val viewModel: WearHomeViewModel = hiltViewModel()
     
+    val accountName by remember(context) {
+        context.dataStore.data.map { it[AccountNameKey] }
+    }.collectAsStateWithLifecycle(initialValue = null)
+
     val isDownloaded = currentSong?.song?.isDownloaded == true || download?.state == Download.STATE_COMPLETED
     val isDownloading = download?.state == Download.STATE_DOWNLOADING || download?.state == Download.STATE_QUEUED
     val downloadPercent = download?.percentDownloaded ?: 0f
@@ -398,62 +417,31 @@ fun WearOptionsPage(
                     label = { 
                         Text(
                             text = when {
-                                isDownloaded -> stringResource(R.string.offline)
-                                isDownloading -> stringResource(R.string.downloading)
+                                isDownloaded -> stringResource(R.string.remove_download)
+                                isDownloading -> stringResource(R.string.downloading_progress, (downloadPercent).toInt(), 100)
                                 else -> stringResource(R.string.action_download)
                             }
-                        ) 
+                        )
                     },
-                    secondaryLabel = {
+                    icon = {
                         if (isDownloading) {
-                            Text("${downloadPercent.toInt()}%")
+                            CircularProgressIndicator(
+                                progress = downloadPercent / 100f,
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                painter = painterResource(if (isDownloaded) R.drawable.offline else R.drawable.download),
+                                contentDescription = null
+                            )
                         }
                     },
-                    icon = { 
-                        Icon(
-                            painter = painterResource(
-                                when {
-                                    isDownloaded -> R.drawable.done
-                                    isDownloading -> R.drawable.close
-                                    else -> R.drawable.download
-                                }
-                            ), 
-                            contentDescription = null,
-                            tint = if (isDownloaded) MaterialTheme.colors.primary else MaterialTheme.colors.onSurface
-                        ) 
-                    },
-                    colors = if (isDownloaded) 
-                        ChipDefaults.secondaryChipColors() 
-                    else 
-                        ChipDefaults.primaryChipColors(),
                     modifier = Modifier.fillMaxWidth()
                 )
             }
         }
-        item {
-            Chip(
-                onClick = onNavigateToQueue,
-                label = { Text(stringResource(R.string.playback_queue)) },
-                icon = { Icon(painterResource(R.drawable.list), contentDescription = null) },
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-        item {
-            Chip(
-                onClick = onNavigateToLiked,
-                label = { Text(stringResource(R.string.liked)) },
-                icon = { Icon(painterResource(R.drawable.ic_heart), contentDescription = null, tint = MaterialTheme.colors.error) },
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-        item {
-            Chip(
-                onClick = onNavigateToDownloads,
-                label = { Text(stringResource(R.string.offline)) },
-                icon = { Icon(painterResource(R.drawable.cached), contentDescription = null, tint = MaterialTheme.colors.primary) },
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
+
         item {
             Chip(
                 onClick = onNavigateToLibrary,
@@ -462,14 +450,48 @@ fun WearOptionsPage(
                 modifier = Modifier.fillMaxWidth()
             )
         }
+
+        // New Home Sections
+        item { ListHeader { Text(stringResource(R.string.home)) } }
+        
         item {
             Chip(
-                onClick = onNavigateToHistory,
-                label = { Text(stringResource(R.string.history)) },
-                icon = { Icon(painterResource(R.drawable.history), contentDescription = null) },
+                onClick = { onNavigateToHomeSection("quick_picks") },
+                label = { Text(stringResource(R.string.quick_picks)) },
+                icon = { Icon(painterResource(R.drawable.grid_view), null) },
                 modifier = Modifier.fillMaxWidth()
             )
         }
+        
+        item {
+            Chip(
+                onClick = { onNavigateToHomeSection("keep_listening") },
+                label = { Text(stringResource(R.string.keep_listening)) },
+                icon = { Icon(painterResource(R.drawable.history), null) },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        
+        if (accountName != null) {
+            item {
+                Chip(
+                    onClick = { onNavigateToHomeSection("for_you") },
+                    label = { Text(stringResource(R.string.for_you)) },
+                    icon = { Icon(painterResource(R.drawable.ic_heart), null) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            
+            item {
+                Chip(
+                    onClick = { onNavigateToHomeSection("listen_again") },
+                    label = { Text(stringResource(R.string.listen_again)) },
+                    icon = { Icon(painterResource(R.drawable.sync), null) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
         item {
             Chip(
                 onClick = onNavigateToSettings,
@@ -484,14 +506,16 @@ fun WearOptionsPage(
     }
 }
 
-@OptIn(ExperimentalWearFoundationApi::class, ExperimentalHorologistApi::class)
+@OptIn(ExperimentalWearFoundationApi::class, ExperimentalHorologistApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun QueueScreen(playerConnection: com.metrolist.music.playback.PlayerConnection) {
     val queueWindows by playerConnection.queueWindows.collectAsStateWithLifecycle(emptyList())
     val currentWindowIndex by playerConnection.currentWindowIndex.collectAsStateWithLifecycle()
     val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsStateWithLifecycle()
+    val menuState = LocalWearSongMenuState.current
     val columnState = rememberResponsiveColumnState()
     val focusRequester = remember { FocusRequester() }
+    val haptic = LocalHapticFeedback.current
 
     ScalingLazyColumn(
         columnState = columnState,
@@ -569,17 +593,40 @@ fun QueueScreen(playerConnection: com.metrolist.music.playback.PlayerConnection)
                     )
                 },
                 icon = {
-                    val iconRes = if (isCurrent) R.drawable.play else R.drawable.music_note
-                    Icon(
-                        painter = painterResource(iconRes),
-                        contentDescription = null,
-                        modifier = Modifier.size(ChipDefaults.IconSize),
-                        tint = if (isCurrent) MaterialTheme.colors.primary else MaterialTheme.colors.onSurface
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(ChipDefaults.IconSize)
+                            .clip(CircleShape)
+                    ) {
+                        AsyncImage(
+                            model = metadata?.thumbnailUrl?.resize(100, 100),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                            alpha = 0.5f
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .combinedClickable(
+                                    onClick = {
+                                        metadata?.let { menuState.show(it) }
+                                    }
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.more_vert),
+                                contentDescription = "Menu",
+                                modifier = Modifier.size(16.dp),
+                                tint = Color.White
+                            )
+                        }
+                    }
                 },
                 colors = if (isCurrent) 
-                    ChipDefaults.gradientBackgroundChipColors() 
-                else 
+                    ChipDefaults.gradientBackgroundChipColors()
+                else
                     ChipDefaults.secondaryChipColors(),
                 modifier = Modifier.fillMaxWidth()
             )

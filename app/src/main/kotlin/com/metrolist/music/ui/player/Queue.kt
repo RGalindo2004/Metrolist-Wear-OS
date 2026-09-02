@@ -121,6 +121,12 @@ import com.metrolist.music.ui.component.MediaMetadataListItem
 import com.metrolist.music.ui.menu.PlayerMenu
 import com.metrolist.music.ui.menu.QueueMenu
 import com.metrolist.music.ui.menu.SelectionMediaMetadataMenu
+import com.metrolist.music.extensions.metadata
+import com.metrolist.music.ui.menu.SongMenu
+import com.metrolist.music.ui.menu.YouTubeSongMenu
+import com.metrolist.music.ui.component.LocalMenuState
+import com.metrolist.music.ui.component.Material3MenuGroup
+import com.metrolist.music.ui.component.Material3MenuItemData
 import com.metrolist.music.ui.utils.ShowMediaInfo
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.makeTimeString
@@ -912,8 +918,18 @@ fun Queue(
                                                 onLongClick = {
                                                     if (!inSelectMode) {
                                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                        inSelectMode = true
-                                                        onCheckedChange(true)
+                                                        window.mediaItem.metadata?.toYTItem()?.let { songItem ->
+                                                            menuState.show {
+                                                                YouTubeSongMenu(
+                                                                    song = songItem,
+                                                                    onDismiss = menuState::dismiss,
+                                                                    onSelect = {
+                                                                        inSelectMode = true
+                                                                        onCheckedChange(true)
+                                                                    }
+                                                                )
+                                                            }
+                                                        }
                                                     }
                                                 },
                                             ),

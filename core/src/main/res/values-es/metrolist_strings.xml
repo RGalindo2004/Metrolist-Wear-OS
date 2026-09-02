@@ -2,6 +2,11 @@
 <resources>
     <string name="local_history">Local</string>
     <string name="remote_history">Remoto</string>
+    <string name="history_both">Ambos</string>
+    <string name="welcome">¡Bienvenido!</string>
+    <string name="welcome_user">¡Bienvenido, %1$s!</string>
+    <string name="for_you">Para ti</string>
+    <string name="listen_again">Vuelve a escuchar</string>
     <string name="charts">Listas de éxitos</string>
     <string name="back_button_desc">Atrás</string>
     <string name="album_cover_desc">Portada del álbum</string>

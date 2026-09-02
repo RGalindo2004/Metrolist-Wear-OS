@@ -9,26 +9,11 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -37,8 +22,9 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
@@ -49,38 +35,31 @@ import com.metrolist.music.LocalNavController
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.core.R
 import com.metrolist.music.constants.CONTENT_TYPE_LIST
-import com.metrolist.music.constants.ListItemHeight
 import com.metrolist.music.db.entities.Album
 import com.metrolist.music.db.entities.Artist
 import com.metrolist.music.db.entities.Playlist
 import com.metrolist.music.db.entities.Song
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.playback.queues.ListQueue
-import com.metrolist.music.ui.component.AlbumListItem
-import com.metrolist.music.ui.component.ArtistListItem
-import com.metrolist.music.ui.component.ChipInfo
-import com.metrolist.music.ui.component.ChipsRow
-import com.metrolist.music.ui.component.EmptyPlaceholder
-import com.metrolist.music.ui.component.LocalMenuState
-import com.metrolist.music.ui.component.PlaylistListItem
-import com.metrolist.music.ui.component.SongListItem
+import com.metrolist.music.ui.component.*
 import com.metrolist.music.ui.menu.SongMenu
 import com.metrolist.music.viewmodels.LocalFilter
 import com.metrolist.music.viewmodels.LocalSearchViewModel
 import kotlinx.coroutines.flow.drop
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun LocalSearchScreen(
     query: String,
     onDismiss: () -> Unit,
     isFromCache: Boolean = false,
-    pureBlack: Boolean,
+    pureBlack: Boolean = false,
     viewModel: LocalSearchViewModel = hiltViewModel(),
 ) {
     val navController = LocalNavController.current
     val queueSearchedSongsStr = stringResource(R.string.queue_searched_songs)
     val keyboardController = LocalSoftwareKeyboardController.current
+    val haptic = LocalHapticFeedback.current
     val menuState = LocalMenuState.current
     val playerConnection = LocalPlayerConnection.current ?: return
 
@@ -122,61 +101,45 @@ fun LocalSearchScreen(
                     }
                 },
     ) {
-        ChipsRow(
-            chips =
-                listOf(
-                    ChipInfo(LocalFilter.ALL, stringResource(R.string.filter_all), R.drawable.search),
-                    ChipInfo(LocalFilter.SONG, stringResource(R.string.filter_songs), R.drawable.music_note),
-                    ChipInfo(LocalFilter.ALBUM, stringResource(R.string.filter_albums), R.drawable.album),
-                    ChipInfo(LocalFilter.ARTIST, stringResource(R.string.filter_artists), R.drawable.artist),
-                    ChipInfo(LocalFilter.PLAYLIST, stringResource(R.string.filter_playlists), R.drawable.playlist_play),
-                ),
-            currentValue = searchFilter,
-            onValueUpdate = { viewModel.filter.value = it },
-        )
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            LocalFilter.entries.forEach { filter ->
+                FilterChip(
+                    selected = searchFilter == filter,
+                    onClick = { viewModel.filter.value = filter },
+                    label = { Text(filter.name) },
+                    leadingIcon =
+                        if (searchFilter == filter) {
+                            {
+                                Icon(
+                                    painter = painterResource(R.drawable.check),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(FilterChipDefaults.IconSize),
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                )
+            }
+        }
+
+        HorizontalDivider()
 
         LazyColumn(
             state = lazyListState,
-            modifier = Modifier.weight(1f),
-            contentPadding =
-                WindowInsets.systemBars
-                    .only(WindowInsetsSides.Bottom)
-                    .asPaddingValues(),
+            modifier = Modifier.fillMaxSize(),
         ) {
-            result.map.forEach { (filter, items) ->
-                if (result.filter == LocalFilter.ALL) {
-                    item(key = filter) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .height(ListItemHeight)
-                                    .clickable { viewModel.filter.value = filter }
-                                    .padding(start = 12.dp, end = 18.dp),
-                        ) {
-                            Text(
-                                text =
-                                    stringResource(
-                                        when (filter) {
-                                            LocalFilter.SONG -> R.string.filter_songs
-                                            LocalFilter.ALBUM -> R.string.filter_albums
-                                            LocalFilter.ARTIST -> R.string.filter_artists
-                                            LocalFilter.PLAYLIST -> R.string.filter_playlists
-                                            LocalFilter.ALL -> error("")
-                                        },
-                                    ),
-                                style = MaterialTheme.typography.titleLarge,
-                                modifier = Modifier.weight(1f),
-                            )
+            val items = result.map[searchFilter].orEmpty()
 
-                            Icon(
-                                painter = painterResource(R.drawable.navigate_next),
-                                contentDescription = null,
-                            )
-                        }
-                    }
+            if (items.isNotEmpty()) {
+                item(key = "header") {
+                    Spacer(Modifier.height(8.dp))
                 }
 
                 items(
@@ -191,18 +154,6 @@ fun LocalSearchScreen(
                                 showInLibraryIcon = true,
                                 isActive = item.id == mediaMetadata?.id,
                                 isPlaying = isPlaying,
-                                onMenuClick = {
-                                    menuState.show {
-                                        SongMenu(
-                                            originalSong = item,
-                                            onDismiss = {
-                                                onDismiss()
-                                                menuState.dismiss()
-                                            },
-                                            isFromCache = isFromCache,
-                                        )
-                                    }
-                                },
                                 modifier =
                                     Modifier
                                         .combinedClickable(
@@ -225,6 +176,7 @@ fun LocalSearchScreen(
                                                 }
                                             },
                                             onLongClick = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                 menuState.show {
                                                     SongMenu(
                                                         originalSong = item,
@@ -236,7 +188,8 @@ fun LocalSearchScreen(
                                                     )
                                                 }
                                             },
-                                        ).animateItem(),
+                                        )
+                                        .animateItem(),
                             )
                         }
 
@@ -279,14 +232,18 @@ fun LocalSearchScreen(
                         }
                     }
                 }
-            }
-
-            if (result.query.isNotEmpty() && result.map.isEmpty()) {
+            } else if (query.isNotBlank()) {
                 item(key = "no_result") {
-                    EmptyPlaceholder(
-                        icon = R.drawable.search,
-                        text = stringResource(R.string.no_results_found),
-                    )
+                    Box(
+                        modifier = Modifier.fillMaxSize().padding(32.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.no_results_found),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.secondary,
+                        )
+                    }
                 }
             }
         }

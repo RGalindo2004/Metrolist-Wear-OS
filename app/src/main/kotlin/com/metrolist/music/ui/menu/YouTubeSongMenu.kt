@@ -99,7 +99,8 @@ import java.time.LocalDateTime
 fun YouTubeSongMenu(
     song: SongItem,
     onDismiss: () -> Unit,
-    onHistoryRemoved: () -> Unit = {}
+    onHistoryRemoved: () -> Unit = {},
+    onSelect: (() -> Unit)? = null,
 ) {
     val navController = LocalNavController.current
     val context = LocalContext.current
@@ -191,25 +192,29 @@ fun YouTubeSongMenu(
         }  
     }  
 
-    ListItem(  
+    ListItem(
         headlineContent = {
             Text(
                 text = song.title,
                 modifier = Modifier.basicMarquee(),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
             )
-        },  
-        supportingContent = {  
-            Text(  
+        },
+        supportingContent = {
+            Text(
                 text = joinByBullet(
                     song.artists.joinToString {
                         ArtistNameAliases.resolve(artistNameAliases, it.id, it.name)
                     },
                     song.duration?.let { makeTimeString(it * 1000L) },
-                )
-            )  
-        },  
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.secondary
+            )
+        },
         leadingContent = {
             Box(
                 contentAlignment = Alignment.Center,
@@ -276,8 +281,8 @@ fun YouTubeSongMenu(
                     contentDescription = null,
                 )
             }
-        },  
-    )  
+        },
+    )
 
     HorizontalDivider()
 
@@ -299,45 +304,168 @@ fun YouTubeSongMenu(
     ) {
         item {
             NewActionGrid(
-                actions = listOfNotNull(
+                actions = buildList {
+                    // Download
+                    add(
+                        when (download?.state) {
+                            Download.STATE_COMPLETED -> {
+                                NewAction(
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.library_add_check),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(28.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    },
+                                    text = stringResource(R.string.offline),
+                                    onClick = {
+                                        DownloadService.sendRemoveDownload(
+                                            context,
+                                            ExoDownloadService::class.java,
+                                            song.id,
+                                            false,
+                                        )
+                                    }
+                                )
+                            }
+                            Download.STATE_QUEUED, Download.STATE_DOWNLOADING -> {
+                                NewAction(
+                                    icon = {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(24.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                    },
+                                    text = stringResource(R.string.downloading),
+                                    onClick = {
+                                        DownloadService.sendRemoveDownload(
+                                            context,
+                                            ExoDownloadService::class.java,
+                                            song.id,
+                                            false,
+                                        )
+                                    }
+                                )
+                            }
+                            else -> {
+                                NewAction(
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.download),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(28.dp)
+                                        )
+                                    },
+                                    text = stringResource(R.string.action_download),
+                                    onClick = {
+                                        database.transaction {
+                                            insert(song.toMediaMetadata())
+                                        }
+                                        val downloadRequest = DownloadRequest
+                                            .Builder(song.id, song.id.toUri())
+                                            .setCustomCacheKey(song.id)
+                                            .setData(song.title.toByteArray())
+                                            .build()
+                                        DownloadService.sendAddDownload(
+                                            context,
+                                            ExoDownloadService::class.java,
+                                            downloadRequest,
+                                            false,
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    )
+                    // Add to queue
                     if (!isGuest) {
+                        add(
+                            NewAction(
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.queue_music),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                },
+                                text = stringResource(R.string.add_to_queue),
+                                onClick = {
+                                    playerConnection.addToQueue(song.toMediaItem())
+                                    onDismiss()
+                                }
+                            )
+                        )
+                    }
+                    // Start Radio
+                    if (!isGuest) {
+                        add(
+                            NewAction(
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.radio),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                },
+                                text = stringResource(R.string.start_radio),
+                                onClick = {
+                                    playerConnection.playQueue(YouTubeQueue.radio(song.toMediaMetadata()))
+                                    onDismiss()
+                                }
+                            )
+                        )
+                    }
+                    // Add to playlist
+                    add(
                         NewAction(
                             icon = {
                                 Icon(
-                                    painter = painterResource(R.drawable.playlist_play),
+                                    painter = painterResource(R.drawable.playlist_add),
                                     contentDescription = null,
                                     modifier = Modifier.size(28.dp)
                                 )
                             },
-                            text = stringResource(R.string.play_next),
+                            text = stringResource(R.string.add_to_playlist),
+                            onClick = {
+                                showChoosePlaylistDialog = true
+                            }
+                        )
+                    )
+                },
+                columns = if (isGuest) 2 else 4,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 16.dp)
+            )
+        }
+
+        item {
+            Material3MenuGroup(
+                items = listOfNotNull(
+                    if (!isGuest) {
+                        Material3MenuItemData(
+                            title = { Text(text = stringResource(R.string.play_next)) },
+                            description = { Text(text = stringResource(R.string.play_next_desc)) },
+                            icon = {
+                                Icon(
+                                    painter = painterResource(R.drawable.playlist_play),
+                                    contentDescription = null,
+                                )
+                            },
                             onClick = {
                                 playerConnection.playNext(song.copy(thumbnail = song.thumbnail.resize(544,544)).toMediaItem())
                                 onDismiss()
                             }
                         )
                     } else null,
-                    NewAction(
-                        icon = {
-                            Icon(
-                                painter = painterResource(R.drawable.playlist_add),
-                                contentDescription = null,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        },
-                        text = stringResource(R.string.add_to_playlist),
-                        onClick = {
-                            showChoosePlaylistDialog = true
-                        }
-                    ),
-                    NewAction(
+                    Material3MenuItemData(
+                        title = { Text(text = stringResource(R.string.share)) },
+                        description = { Text(text = stringResource(R.string.share_desc)) },
                         icon = {
                             Icon(
                                 painter = painterResource(R.drawable.share),
                                 contentDescription = null,
-                                modifier = Modifier.size(28.dp)
                             )
                         },
-                        text = stringResource(R.string.share),
                         onClick = {
                             val intent = Intent().apply {
                                 action = Intent.ACTION_SEND
@@ -348,71 +476,6 @@ fun YouTubeSongMenu(
                             onDismiss()
                         }
                     )
-                ),
-                columns = if (isGuest) 2 else 3,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 16.dp)
-            )
-        }
-
-        item {
-            Material3MenuGroup(
-                items = listOfNotNull(
-                    if (listenTogetherManager != null && listenTogetherManager.isInRoom && !listenTogetherManager.isHost) {
-                        Material3MenuItemData(
-                            title = { Text(text = stringResource(R.string.suggest_to_host)) },
-                            icon = {
-                                Icon(
-                                    painter = painterResource(R.drawable.trending_up),
-                                    contentDescription = null,
-                                )
-                            },
-                            onClick = {
-                                val durationMs = if (song.duration != null && song.duration!! > 0) song.duration!! * 1000L else 180000L
-                                val trackInfo = com.metrolist.music.listentogether.TrackInfo(
-                                    id = song.id,
-                                    title = song.title,
-                                    artist = artists.joinToString(", ") { it.name },
-                                    album = song.album?.name,
-                                    duration = durationMs,
-                                    thumbnail = song.thumbnail
-                                )
-                                listenTogetherManager.suggestTrack(trackInfo)
-                                onDismiss()
-                            }
-                        )
-                    } else null,
-                    if (!isGuest) {
-                        Material3MenuItemData(
-                            title = { Text(text = stringResource(R.string.start_radio)) },
-                            description = { Text(text = stringResource(R.string.start_radio_desc)) },
-                            icon = {
-                                Icon(
-                                    painter = painterResource(R.drawable.radio),
-                                    contentDescription = null,
-                                )
-                            },
-                            onClick = {
-                                playerConnection.playQueue(YouTubeQueue.radio(song.toMediaMetadata()))
-                                onDismiss()
-                            }
-                        )
-                    } else null,
-                    if (!isGuest) {
-                        Material3MenuItemData(
-                            title = { Text(text = stringResource(R.string.add_to_queue)) },
-                            description = { Text(text = stringResource(R.string.add_to_queue_desc)) },
-                            icon = {
-                                Icon(
-                                    painter = painterResource(R.drawable.queue_music),
-                                    contentDescription = null,
-                                )
-                            },
-                            onClick = {
-                                playerConnection.addToQueue(song.toMediaItem())
-                                onDismiss()
-                            }
-                        )
-                    } else null
                 )
             )
         }
@@ -728,6 +791,23 @@ fun YouTubeSongMenu(
                             }
                         )
                     )
+                    if (onSelect != null) {
+                        add(
+                            Material3MenuItemData(
+                                title = { Text(text = stringResource(R.string.select)) },
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.select_all),
+                                        contentDescription = null,
+                                    )
+                                },
+                                onClick = {
+                                    onDismiss()
+                                    onSelect()
+                                },
+                            )
+                        )
+                    }
                 }
             )
         }

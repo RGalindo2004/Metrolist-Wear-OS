@@ -643,9 +643,17 @@ fun AutoPlaylistScreen(
                                         onLongClick = {
                                             if (!inSelectMode) {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                inSelectMode = true
-                                                onCheckedChange(true)
-                                                selectionAnchorSongId = song.id
+                                                menuState.show {
+                                                    SongMenu(
+                                                        originalSong = song,
+                                                        onDismiss = menuState::dismiss,
+                                                        onSelect = {
+                                                            inSelectMode = true
+                                                            onCheckedChange(true)
+                                                            selectionAnchorSongId = song.id
+                                                        }
+                                                    )
+                                                }
                                             } else {
                                                 val anchorIndex =
                                                     selectionAnchorSongId?.let { anchorSongId ->

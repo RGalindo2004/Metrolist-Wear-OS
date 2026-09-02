@@ -371,6 +371,7 @@ inline fun ListItem(
                     modifier = Modifier.weight(1f, fill = false)
                 )
 
+                /*
                 if (onMenuClick != null) {
                     IconButton(
                         onClick = onMenuClick,
@@ -385,6 +386,7 @@ inline fun ListItem(
                         )
                     }
                 }
+                */
             }
 
             if (subtitle != null) {

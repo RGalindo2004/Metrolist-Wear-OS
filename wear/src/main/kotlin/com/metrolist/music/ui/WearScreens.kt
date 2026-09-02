@@ -624,7 +624,7 @@ fun WearSearchScreen(
 }
 
 
-private enum class LoginMode { None, Google, Token }
+private enum class LoginMode { None, Token }
 
 @OptIn(ExperimentalHorologistApi::class)
 @Composable
@@ -686,14 +686,31 @@ fun WearLoginScreen(onDismiss: () -> Unit = {}) {
                         if (params.containsKey("cookie")) {
                             val cookie = java.net.URLDecoder.decode(params["cookie"], "UTF-8")
                             coroutineScope.launch {
-                                context.safeDataStoreEdit { it[InnerTubeCookieKey] = cookie }
-                                statusMessage = "Login successful! Restarting..."
-                                delay(2000)
-                                if (context is Activity) {
-                                    val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
-                                    intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-                                    context.startActivity(intent)
-                                    Runtime.getRuntime().exit(0)
+                                isLoading = true
+                                statusMessage = "Iniciando sesión..."
+                                
+                                runCatching {
+                                    YouTube.cookie = cookie
+                                    val accountInfo = YouTube.accountInfo().getOrThrow()
+                                    
+                                    context.safeDataStoreEdit { settings ->
+                                        settings[InnerTubeCookieKey] = cookie
+                                        settings[AccountNameKey] = accountInfo.name
+                                        settings[AccountEmailKey] = accountInfo.email.orEmpty()
+                                        settings[AccountPhotoKey] = accountInfo.thumbnailUrl.orEmpty()
+                                    }
+                                    
+                                    statusMessage = "¡Éxito! Reiniciando..."
+                                    delay(2000)
+                                    if (context is Activity) {
+                                        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                                        intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                                        context.startActivity(intent)
+                                        Runtime.getRuntime().exit(0)
+                                    }
+                                }.onFailure { e ->
+                                    isLoading = false
+                                    statusMessage = "Error: ${e.message}"
                                 }
                             }
                         }
@@ -766,14 +783,6 @@ fun WearLoginScreen(onDismiss: () -> Unit = {}) {
                 LoginMode.None -> {
                     item {
                         Chip(
-                            onClick = { loginMode = LoginMode.Google },
-                            label = { Text("Google Login") },
-                            icon = { Icon(painterResource(R.drawable.login), null) },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    item {
-                        Chip(
                             onClick = { loginMode = LoginMode.Token },
                             label = { Text("Browser Login") },
                             icon = { Icon(painterResource(R.drawable.sync), null) },
@@ -787,55 +796,6 @@ fun WearLoginScreen(onDismiss: () -> Unit = {}) {
                             colors = ChipDefaults.secondaryChipColors(),
                             modifier = Modifier.fillMaxWidth()
                         )
-                    }
-                }
-                LoginMode.Google -> {
-                    if (deviceCodeResponse == null) {
-                        item {
-                            Button(
-                                onClick = {
-                                    isLoading = true
-                                    coroutineScope.launch {
-                                        GoogleDeviceAuth.requestDeviceCode().onSuccess {
-                                            deviceCodeResponse = it
-                                            isLoading = false
-                                        }.onFailure {
-                                            statusMessage = "Error: ${it.message}"
-                                            isLoading = false
-                                        }
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) { Text("Get Code") }
-                        }
-                    } else {
-                        item {
-                            Text(
-                                text = "Go to: ${deviceCodeResponse!!.verificationUrl}\nEnter code: ${deviceCodeResponse!!.userCode}",
-                                style = MaterialTheme.typography.caption2,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(8.dp)
-                            )
-                        }
-                        item {
-                            Button(
-                                onClick = {
-                                    isLoading = true
-                                    coroutineScope.launch {
-                                        GoogleDeviceAuth.pollToken(deviceCodeResponse!!.deviceCode).onSuccess { token ->
-                                            context.safeDataStoreEdit { it[InnerTubeBearerTokenKey] = token.accessToken.orEmpty() }
-                                            statusMessage = "Success!"
-                                            delay(1000)
-                                            if (context is Activity) context.recreate()
-                                        }.onFailure {
-                                            statusMessage = "Error: ${it.message}"
-                                            isLoading = false
-                                        }
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) { Text("Verify") }
-                        }
                     }
                 }
                 LoginMode.Token -> {

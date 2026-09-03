@@ -27,6 +27,8 @@
     <string name="weekly_most_playlist_name">Weekly Most</string>
     <string name="monthly_most_playlist_name">Monthly Most</string>
     <string name="cached_playlist">Cached</string>
+    <string name="cached_music">Cached Music</string>
+    <string name="filter_cached">Cached</string>
     <string name="uploaded_playlist">Uploaded</string>
     <string name="filter_uploaded">Uploaded</string>
     <string name="sync_playlist">Sync playlist</string>

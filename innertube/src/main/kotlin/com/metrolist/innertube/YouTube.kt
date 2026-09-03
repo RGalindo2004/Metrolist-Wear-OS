@@ -1105,67 +1105,38 @@ object YouTube {
                         authorAvatarUrl = authorAvatarUrl,
                     ),
                 songs = run {
-                    val twoColShelf =
-                        response.contents
-                            ?.twoColumnBrowseResultsRenderer
-                            ?.secondaryContents
-                            ?.sectionListRenderer
-                            ?.contents
-                            ?.firstOrNull()
-                    val twoColContents =
-                        twoColShelf?.musicPlaylistShelfRenderer?.contents
-                            ?: twoColShelf?.musicShelfRenderer?.contents
-                    val singleColShelf =
-                        response.contents
-                            ?.singleColumnBrowseResultsRenderer
-                            ?.tabs
-                            ?.firstOrNull()
-                            ?.tabRenderer
-                            ?.content
-                            ?.sectionListRenderer
-                            ?.contents
-                            ?.firstOrNull()
-                    val singleColContents =
-                        singleColShelf?.musicPlaylistShelfRenderer?.contents
-                            ?: singleColShelf?.musicShelfRenderer?.contents
-                    (twoColContents ?: singleColContents)
-                        ?.getItems()
-                        ?.mapNotNull { PlaylistPage.fromMusicResponsiveListItemRenderer(it) }
+                    val sectionListContents = response.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer?.contents
+                        ?: response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()?.tabRenderer?.content?.sectionListRenderer?.contents
                         ?: emptyList()
+
+                    sectionListContents.flatMap { content ->
+                        val shelves = mutableListOf<List<MusicShelfRenderer.Content>>()
+                        content.musicPlaylistShelfRenderer?.contents?.let { shelves.add(it) }
+                        content.musicShelfRenderer?.contents?.let { shelves.add(it) }
+                        content.itemSectionRenderer?.contents?.forEach { itemContent ->
+                            itemContent.musicPlaylistShelfRenderer?.contents?.let { shelves.add(it) }
+                            itemContent.musicShelfRenderer?.contents?.let { shelves.add(it) }
+                        }
+                        shelves.flatMap { it.getItems() }
+                    }.mapNotNull { PlaylistPage.fromMusicResponsiveListItemRenderer(it) }
                 },
                 songsContinuation = run {
-                    val twoColShelf =
-                        response.contents
-                            ?.twoColumnBrowseResultsRenderer
-                            ?.secondaryContents
-                            ?.sectionListRenderer
-                            ?.contents
-                            ?.firstOrNull()
-                    val twoColContents =
-                        twoColShelf?.musicPlaylistShelfRenderer?.contents
-                            ?: twoColShelf?.musicShelfRenderer?.contents
-                    val twoColContinuations =
-                        twoColShelf?.musicPlaylistShelfRenderer?.continuations
-                            ?: twoColShelf?.musicShelfRenderer?.continuations
-                    val singleColShelf =
-                        response.contents
-                            ?.singleColumnBrowseResultsRenderer
-                            ?.tabs
-                            ?.firstOrNull()
-                            ?.tabRenderer
-                            ?.content
-                            ?.sectionListRenderer
-                            ?.contents
-                            ?.firstOrNull()
-                    val singleColContents =
-                        singleColShelf?.musicPlaylistShelfRenderer?.contents
-                            ?: singleColShelf?.musicShelfRenderer?.contents
-                    val singleColContinuations =
-                        singleColShelf?.musicPlaylistShelfRenderer?.continuations
-                            ?: singleColShelf?.musicShelfRenderer?.continuations
-                    val mergedContents = twoColContents ?: singleColContents
-                    val mergedContinuations = twoColContinuations ?: singleColContinuations
-                    mergedContents?.getContinuation() ?: mergedContinuations?.getContinuation()
+                    val sectionListContents = response.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer?.contents
+                        ?: response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()?.tabRenderer?.content?.sectionListRenderer?.contents
+                        ?: emptyList()
+
+                    sectionListContents.firstNotNullOfOrNull { content ->
+                        content.musicPlaylistShelfRenderer?.contents?.getContinuation()
+                            ?: content.musicPlaylistShelfRenderer?.continuations?.getContinuation()
+                            ?: content.musicShelfRenderer?.contents?.getContinuation()
+                            ?: content.musicShelfRenderer?.continuations?.getContinuation()
+                            ?: content.itemSectionRenderer?.contents?.firstNotNullOfOrNull { itemContent ->
+                                itemContent.musicPlaylistShelfRenderer?.contents?.getContinuation()
+                                    ?: itemContent.musicPlaylistShelfRenderer?.continuations?.getContinuation()
+                                    ?: itemContent.musicShelfRenderer?.contents?.getContinuation()
+                                    ?: itemContent.musicShelfRenderer?.continuations?.getContinuation()
+                            }
+                    }
                 },
                 continuation =
                     response.contents
@@ -1173,7 +1144,16 @@ object YouTube {
                         ?.secondaryContents
                         ?.sectionListRenderer
                         ?.continuations
-                        ?.getContinuation(),
+                        ?.getContinuation()
+                        ?: response.contents
+                            ?.singleColumnBrowseResultsRenderer
+                            ?.tabs
+                            ?.firstOrNull()
+                            ?.tabRenderer
+                            ?.content
+                            ?.sectionListRenderer
+                            ?.continuations
+                            ?.getContinuation(),
             )
         }
 

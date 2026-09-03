@@ -154,9 +154,10 @@ fun WearMenuScreen(
                 onClick = onNavigateToLogin,
                 label = { Text(accountName ?: stringResource(R.string.login)) },
                 icon = {
-                    if (accountPhoto != null) {
+                    val photo = accountPhoto
+                    if (photo != null) {
                         AsyncImage(
-                            model = accountPhoto,
+                            model = photo.resize(100, 100),
                             contentDescription = null,
                             modifier = Modifier
                                 .size(ChipDefaults.IconSize)
@@ -216,7 +217,7 @@ fun WearHomeSectionScreen(
 
         when (sectionType) {
             "quick_picks" -> {
-                items(quickPicks ?: emptyList()) { song ->
+                items(quickPicks ?: emptyList(), key = { it.song.id }) { song ->
                     WearSongChip(
                         title = song.song.title,
                         artists = song.artists.joinToString { it.name },
@@ -232,7 +233,13 @@ fun WearHomeSectionScreen(
                 }
             }
             "keep_listening" -> {
-                items(keepListening ?: emptyList()) { item ->
+                items(keepListening ?: emptyList(), key = { item ->
+                    when (item) {
+                        is Song -> "song_${item.song.id}"
+                        is Album -> "album_${item.id}"
+                        else -> item.hashCode()
+                    }
+                }) { item ->
                     when (item) {
                         is Song -> WearSongChip(
                             title = item.song.title,
@@ -252,12 +259,12 @@ fun WearHomeSectionScreen(
                 }
             }
             "for_you" -> {
-                items(forYou?.items ?: emptyList()) { item ->
+                items(forYou?.items ?: emptyList(), key = { it.id }) { item ->
                     YTItemChip(item, onItemClick)
                 }
             }
             "listen_again" -> {
-                items(listenAgain?.items ?: emptyList()) { item ->
+                items(listenAgain?.items ?: emptyList(), key = { it.id }) { item ->
                     YTItemChip(item, onItemClick)
                 }
             }
@@ -512,7 +519,7 @@ fun WearSearchScreen(
                     )
                 }
             } else {
-                items(results) { item ->
+                items(results, key = { it.id }) { item ->
                     if (item is SongItem) {
                         WearSongChip(
                             title = item.title,
@@ -566,7 +573,7 @@ fun WearSearchScreen(
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 AsyncImage(
-                                    model = item.thumbnail,
+                                    model = item.thumbnail?.resize(80, 80),
                                     contentDescription = null,
                                     placeholder = painterResource(R.drawable.music_note),
                                     error = painterResource(R.drawable.music_note),
@@ -628,7 +635,7 @@ private enum class LoginMode { None, Token }
 
 @OptIn(ExperimentalHorologistApi::class)
 @Composable
-fun WearLoginScreen(onDismiss: () -> Unit = {}) {
+fun WearLoginScreen() {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val columnState = rememberResponsiveColumnState()
@@ -789,14 +796,6 @@ fun WearLoginScreen(onDismiss: () -> Unit = {}) {
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
-                    item {
-                        Chip(
-                            onClick = onDismiss,
-                            label = { Text(stringResource(R.string.dismiss)) },
-                            colors = ChipDefaults.secondaryChipColors(),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
                 }
                 LoginMode.Token -> {
                     item {
@@ -866,6 +865,7 @@ fun WearLibraryScreen(
     onNavigateToPlaylists: () -> Unit,
     onNavigateToLiked: () -> Unit,
     onNavigateToDownloads: () -> Unit,
+    onNavigateToCache: () -> Unit,
     onNavigateToHistory: () -> Unit,
     onNavigateToLogin: () -> Unit
 ) {
@@ -973,6 +973,14 @@ fun WearLibraryScreen(
         }
         item {
             Chip(
+                onClick = onNavigateToCache,
+                label = { Text(stringResource(R.string.filter_cached)) },
+                icon = { Icon(painterResource(R.drawable.cached), contentDescription = null) },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        item {
+            Chip(
                 onClick = onNavigateToHistory,
                 label = { Text(stringResource(R.string.history)) },
                 icon = { Icon(painterResource(R.drawable.history), contentDescription = null) },
@@ -990,6 +998,7 @@ fun WearLibraryScreen(
 fun WearLibrarySongsScreen(
     filterLiked: Boolean = false,
     filterDownloaded: Boolean = false,
+    filterCached: Boolean = false,
     onItemClick: () -> Unit = {}
 ) {
     val database = LocalDatabase.current
@@ -997,11 +1006,15 @@ fun WearLibrarySongsScreen(
     val menuState = LocalWearSongMenuState.current
     val columnState = rememberResponsiveColumnState()
     val focusRequester = remember { FocusRequester() }
+    val coroutineScope = rememberCoroutineScope()
 
-    val songs by when {
-        filterLiked -> database.likedSongs(SongSortType.CREATE_DATE, true)
-        filterDownloaded -> database.downloadedSongs(SongSortType.CREATE_DATE, true)
-        else -> database.songs(SongSortType.CREATE_DATE, true)
+    val songs by remember(filterLiked, filterDownloaded, filterCached) {
+        when {
+            filterLiked -> database.likedSongs(SongSortType.CREATE_DATE, true)
+            filterDownloaded -> database.downloadedSongs(SongSortType.CREATE_DATE, true)
+            filterCached -> database.cachePlaylistSongs()
+            else -> database.songs(SongSortType.CREATE_DATE, true)
+        }
     }.collectAsStateWithLifecycle(initialValue = emptyList())
 
     ScalingLazyColumn(
@@ -1014,13 +1027,37 @@ fun WearLibrarySongsScreen(
                     text = when {
                         filterLiked -> stringResource(R.string.filter_liked)
                         filterDownloaded -> stringResource(R.string.filter_downloaded)
+                        filterCached -> stringResource(R.string.filter_cached)
                         else -> stringResource(R.string.songs)
                     }
                 )
             }
         }
         
-        items(songs) { song ->
+        if (filterCached && songs.isNotEmpty()) {
+            item {
+                Chip(
+                    onClick = {
+                        coroutineScope.launch(Dispatchers.IO) {
+                            val playerCache = playerConnection?.service?.playerCache
+                            playerCache?.keys?.forEach { key ->
+                                playerCache.removeResource(key)
+                            }
+                            // Also clear flags in DB
+                            songs.forEach { song ->
+                                database.query { update(song.song.copy(dateDownload = null)) }
+                            }
+                        }
+                    },
+                    label = { Text(stringResource(R.string.clear_song_cache)) },
+                    icon = { Icon(painterResource(R.drawable.clear_all), contentDescription = null) },
+                    colors = ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+        
+        items(songs, key = { it.song.id }) { song ->
             WearSongChip(
                 title = song.song.title,
                 artists = song.artists.joinToString { it.name },
@@ -1057,7 +1094,7 @@ fun WearHistoryScreen(onItemClick: () -> Unit = {}) {
         modifier = Modifier.fillMaxSize().focusRequester(focusRequester).focusable()
     ) {
         item { ListHeader { Text(stringResource(R.string.history)) } }
-        items(history) { event ->
+        items(history, key = { it.event.id }) { event ->
             WearSongChip(
                 title = event.song.song.title,
                 artists = event.song.artists.joinToString { it.name },
@@ -1090,7 +1127,7 @@ fun WearLibraryAlbumsScreen(onAlbumClick: (String) -> Unit) {
         modifier = Modifier.fillMaxSize().focusRequester(focusRequester).focusable()
     ) {
         item { ListHeader { Text(stringResource(R.string.albums)) } }
-        items(albums) { album ->
+        items(albums, key = { it.id }) { album ->
             Chip(
                 onClick = { onAlbumClick(album.id) },
                 label = { Text(album.album.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -1128,7 +1165,7 @@ fun WearAlbumSongsScreen(albumId: String, onItemClick: () -> Unit) {
         modifier = Modifier.fillMaxSize().focusRequester(focusRequester).focusable()
     ) {
         item { ListHeader { Text(album?.album?.title ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis) } }
-        items(songs) { song ->
+        items(songs, key = { it.song.id }) { song ->
             WearSongChip(
                 title = song.song.title,
                 artists = song.artists.joinToString { it.name },
@@ -1161,7 +1198,7 @@ fun WearLibraryArtistsScreen(onArtistClick: (String) -> Unit) {
         modifier = Modifier.fillMaxSize().focusRequester(focusRequester).focusable()
     ) {
         item { ListHeader { Text(stringResource(R.string.artists)) } }
-        items(artists) { artist ->
+        items(artists, key = { it.id }) { artist ->
             Chip(
                 onClick = { onArtistClick(artist.id) },
                 label = { Text(artist.artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -1198,7 +1235,7 @@ fun WearArtistSongsScreen(artistId: String, onItemClick: () -> Unit) {
         modifier = Modifier.fillMaxSize().focusRequester(focusRequester).focusable()
     ) {
         item { ListHeader { Text(artist?.artist?.name ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis) } }
-        items(songs) { song ->
+        items(songs, key = { it.song.id }) { song ->
             WearSongChip(
                 title = song.song.title,
                 artists = song.artists.joinToString { it.name },
@@ -1231,7 +1268,7 @@ fun WearLibraryPlaylistsScreen(onPlaylistClick: (String) -> Unit) {
         modifier = Modifier.fillMaxSize().focusRequester(focusRequester).focusable()
     ) {
         item { ListHeader { Text(stringResource(R.string.playlists)) } }
-        items(playlists) { playlist ->
+        items(playlists, key = { it.id }) { playlist ->
             Chip(
                 onClick = { onPlaylistClick(playlist.id) },
                 label = { Text(playlist.playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -1270,7 +1307,7 @@ fun WearPlaylistSongsScreen(playlistId: String, onItemClick: () -> Unit) {
         modifier = Modifier.fillMaxSize().focusRequester(focusRequester).focusable()
     ) {
         item { ListHeader { Text(playlist?.playlist?.name ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis) } }
-        items(playlistSongs) { playlistSong ->
+        items(playlistSongs, key = { it.song.id }) { playlistSong ->
             val song = playlistSong.song
             WearSongChip(
                 title = song.song.title,
@@ -1317,7 +1354,7 @@ fun WearOnlinePlaylistScreen(playlistId: String, onItemClick: () -> Unit) {
         if (isLoading) {
             item { Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
         } else {
-            items(playlistPage?.songs ?: emptyList()) { songItem ->
+            items(playlistPage?.songs ?: emptyList(), key = { it.id }) { songItem ->
                 WearSongChip(
                     title = songItem.title,
                     artists = songItem.artists.joinToString { it.name },
@@ -1364,7 +1401,7 @@ fun WearOnlineAlbumScreen(albumId: String, onItemClick: () -> Unit) {
         if (isLoading) {
             item { Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
         } else {
-            items(albumPage?.songs ?: emptyList()) { songItem ->
+            items(albumPage?.songs ?: emptyList(), key = { it.id }) { songItem ->
                 WearSongChip(
                     title = songItem.title,
                     artists = songItem.artists.joinToString { it.name },
@@ -1413,7 +1450,7 @@ fun WearOnlineArtistScreen(artistId: String, onItemClick: () -> Unit) {
         } else {
             artistPage?.sections?.forEach { section ->
                 item { ListHeader { Text(section.title ?: "", style = MaterialTheme.typography.caption2) } }
-                items(section.items) { item ->
+                items(section.items, key = { it.id }) { item ->
                     when (item) {
                         is SongItem -> {
                             WearSongChip(
@@ -1560,9 +1597,10 @@ fun WearSettingsScreen(
                 label = { Text(accountName ?: stringResource(R.string.not_logged_in)) },
                 secondaryLabel = { Text(if (accountName != null) stringResource(R.string.action_logout) else stringResource(R.string.action_login)) },
                 icon = {
-                    if (accountPhoto != null) {
+                    val photo = accountPhoto
+                    if (photo != null) {
                         AsyncImage(
-                            model = accountPhoto,
+                            model = photo.resize(100, 100),
                             contentDescription = null,
                             modifier = Modifier
                                 .size(ChipDefaults.IconSize)

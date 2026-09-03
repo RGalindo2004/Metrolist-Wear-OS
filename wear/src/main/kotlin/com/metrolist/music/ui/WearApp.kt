@@ -87,6 +87,7 @@ fun WearApp() {
                                 onNavigateToLibrary = { navController.navigate("library") },
                                 onNavigateToLiked = { navController.navigate("library/liked") },
                                 onNavigateToDownloads = { navController.navigate("library/downloads") },
+                                onNavigateToCache = { navController.navigate("library/cache") },
                                 onNavigateToHistory = { navController.navigate("library/history") },
                                 onNavigateToVolume = { navController.navigate("volume") },
                                 onNavigateToQueue = {},
@@ -175,7 +176,7 @@ fun WearApp() {
                             )
                         }
                         composable("login") {
-                            WearLoginScreen(onDismiss = { navController.popBackStack() })
+                            WearLoginScreen()
                         }
                         composable("settings") {
                             WearSettingsScreen(
@@ -220,6 +221,7 @@ fun WearApp() {
                                 onNavigateToPlaylists = { navController.navigate("library/playlists") },
                                 onNavigateToLiked = { navController.navigate("library/liked") },
                                 onNavigateToDownloads = { navController.navigate("library/downloads") },
+                                onNavigateToCache = { navController.navigate("library/cache") },
                                 onNavigateToHistory = { navController.navigate("library/history") },
                                 onNavigateToLogin = { navController.navigate("login") }
                             )
@@ -246,6 +248,16 @@ fun WearApp() {
                         composable("library/downloads") {
                             WearLibrarySongsScreen(
                                 filterDownloaded = true,
+                                onItemClick = {
+                                    navController.navigate("player") {
+                                        popUpTo("player") { inclusive = true }
+                                    }
+                                }
+                            )
+                        }
+                        composable("library/cache") {
+                            WearLibrarySongsScreen(
+                                filterCached = true,
                                 onItemClick = {
                                     navController.navigate("player") {
                                         popUpTo("player") { inclusive = true }

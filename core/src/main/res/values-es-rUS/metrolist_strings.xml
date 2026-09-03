@@ -45,6 +45,8 @@
     <string name="liked">Tus \"me gusta\"</string>
     <string name="offline">Descargados</string>
     <string name="cached_playlist">Guardado en la caché</string>
+    <string name="cached_music">Música en caché</string>
+    <string name="filter_cached">En caché</string>
     <string name="sync_playlist">Sincronizar lista de reproducción</string>
     <string name="sync_disabled">Sincronización desactivada</string>
     <string name="allows_for_sync_witch_youtube">Nota: Esto permite sincronizarse con YouTube Music. NO se puede cambiar después</string>

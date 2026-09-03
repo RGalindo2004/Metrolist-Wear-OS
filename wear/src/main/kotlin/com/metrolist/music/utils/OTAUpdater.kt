@@ -29,7 +29,7 @@ object OTAUpdater {
 
     suspend fun checkAndUpdate(context: Context) {
         withContext(Dispatchers.IO) {
-            runCatching {
+            try {
                 val response = client.get(GITHUB_API_URL).bodyAsText()
                 val json = JSONObject(response)
                 val latestVersion = json.getString("tag_name").removePrefix("v")
@@ -49,28 +49,47 @@ object OTAUpdater {
                 if (hasUpdate) {
                     val assets = json.getJSONArray("assets")
                     var downloadUrl: String? = null
+                    
                     for (i in 0 until assets.length()) {
                         val asset = assets.getJSONObject(i)
-                        if (asset.getString("name") == "wear-debug.apk") {
+                        val name = asset.getString("name")
+                        if (!name.endsWith(".apk")) continue
+                        
+                        val isDebugBuild = BuildConfig.DEBUG
+                        if (isDebugBuild && name.contains("DEBUG", ignoreCase = true)) {
+                            downloadUrl = asset.getString("browser_download_url")
+                            break
+                        } else if (!isDebugBuild && !name.contains("DEBUG", ignoreCase = true)) {
                             downloadUrl = asset.getString("browser_download_url")
                             break
                         }
                     }
+                    
+                    if (downloadUrl == null) {
+                        for (i in 0 until assets.length()) {
+                            val asset = assets.getJSONObject(i)
+                            val name = asset.getString("name")
+                            if (name.endsWith(".apk")) {
+                                downloadUrl = asset.getString("browser_download_url")
+                                break
+                            }
+                        }
+                    }
 
                     if (downloadUrl != null) {
-                        if (!checkInstallPermission(context)) return@runCatching
-                        
-                        withContext(Dispatchers.Main) {
-                            Toast.makeText(context, R.string.ota_downloading, Toast.LENGTH_SHORT).show()
+                        if (checkInstallPermission(context)) {
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(context, R.string.ota_downloading, Toast.LENGTH_SHORT).show()
+                            }
+                            downloadAndInstall(context, downloadUrl)
                         }
-                        downloadAndInstall(context, downloadUrl)
                     }
                 } else {
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, R.string.ota_latest_version, Toast.LENGTH_SHORT).show()
                     }
                 }
-            }.onFailure { e ->
+            } catch (e: Exception) {
                 Timber.e(e, "OTA Update failed")
                 withContext(Dispatchers.Main) {
                     Toast.makeText(context, context.getString(R.string.ota_error, e.message), Toast.LENGTH_LONG).show()

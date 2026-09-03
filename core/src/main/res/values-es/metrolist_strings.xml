@@ -20,6 +20,8 @@
     <string name="offline">Descargado</string>
     <string name="my_top">Mi Top</string>
     <string name="cached_playlist">En caché</string>
+    <string name="cached_music">Música en caché</string>
+    <string name="filter_cached">En caché</string>
     <string name="sync_playlist">Sincronizar lista de reproducción</string>
     <string name="sync_disabled">Sincronización deshabilitada</string>
     <string name="allows_for_sync_witch_youtube">Nota: Esto habilita la sincronización con YouTube Music. y NO se puede cambiar después</string>

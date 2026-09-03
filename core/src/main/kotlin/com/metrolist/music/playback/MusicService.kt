@@ -685,7 +685,7 @@ class MusicService :
                 scope = scope,
                 player = player,
                 onTimerFinished = {
-                    sendBroadcast(Intent(ACTION_QUIT))
+                    sendBroadcast(Intent(ACTION_QUIT).setPackage(packageName))
                     stopSelf()
                 },
                 onVolumeMultiplierChanged = { multiplier ->

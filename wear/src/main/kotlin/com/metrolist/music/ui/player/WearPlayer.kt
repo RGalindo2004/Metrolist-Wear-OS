@@ -60,6 +60,7 @@ import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.ui.LocalWearSongMenuState
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.resize
+import com.metrolist.music.utils.makeTimeString
 import com.metrolist.music.constants.SleepTimerDefaultKey
 import com.metrolist.music.constants.AccountNameKey
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -68,11 +69,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.map
 
-/**
- * Wear OS Music Player for Metrolist.
- * Optimized for circular screens, crown support, and Horologist controls.
- */
-@OptIn(ExperimentalWearFoundationApi::class, ExperimentalHorologistApi::class)
 @Composable
 fun WearMusicPlayer(
     onNavigateToSearch: () -> Unit,
@@ -80,6 +76,7 @@ fun WearMusicPlayer(
     onNavigateToLibrary: () -> Unit,
     onNavigateToLiked: () -> Unit,
     onNavigateToDownloads: () -> Unit,
+    onNavigateToCache: () -> Unit,
     onNavigateToHistory: () -> Unit,
     onNavigateToVolume: () -> Unit,
     onNavigateToQueue: () -> Unit,
@@ -116,6 +113,7 @@ fun WearMusicPlayer(
                 onNavigateToLibrary = onNavigateToLibrary,
                 onNavigateToLiked = onNavigateToLiked,
                 onNavigateToDownloads = onNavigateToDownloads,
+                onNavigateToCache = onNavigateToCache,
                 onNavigateToHistory = onNavigateToHistory,
                 onNavigateToQueue = onNavigateToQueue,
                 onNavigateToHomeSection = onNavigateToHomeSection,
@@ -138,21 +136,24 @@ fun NowPlayingScreen(
     val batterySaver = LocalBatterySaverMode.current
     val currentSong by playerConnection.currentSong.collectAsStateWithLifecycle()
     val isLiked = currentSong?.song?.liked == true
+    val isSleepActive = playerConnection.service.sleepTimer?.isActive == true
     var showSleepTimerDialog by remember { mutableStateOf(false) }
+    var sleepTimeLeft by remember { mutableLongStateOf(0L) }
 
     val focusRequester = remember { FocusRequester() }
     val player = playerConnection.player
     
-    var currentPosition by remember { mutableLongStateOf(0L) }
-    var duration by remember { mutableLongStateOf(0L) }
-
-    LaunchedEffect(isPlaying, metadata) {
-        while (isActive) {
-            if (isPlaying) {
-                currentPosition = player.currentPosition
-                duration = if (player.duration > 0) player.duration else 0L
+    LaunchedEffect(isSleepActive, showSleepTimerDialog) {
+        if (isSleepActive && showSleepTimerDialog) {
+            while (isActive) {
+                val triggerTime = playerConnection.service.sleepTimer?.triggerTime ?: -1L
+                if (triggerTime != -1L) {
+                    sleepTimeLeft = (triggerTime - System.currentTimeMillis()).coerceAtLeast(0L)
+                } else if (playerConnection.service.sleepTimer?.pauseWhenSongEnd == true) {
+                    sleepTimeLeft = -1L // Signal for "End of song"
+                }
+                delay(1000)
             }
-            delay(500)
         }
     }
 
@@ -197,15 +198,7 @@ fun NowPlayingScreen(
         }
 
         // Circular Progress Indicator (Subtle background)
-        if (duration > 0) {
-            CircularProgressIndicator(
-                progress = (currentPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f),
-                modifier = Modifier.fillMaxSize(),
-                strokeWidth = 2.dp,
-                indicatorColor = MaterialTheme.colors.primary.copy(alpha = 0.7f),
-                trackColor = MaterialTheme.colors.onSurface.copy(alpha = 0.05f)
-            )
-        }
+        PlayerProgressIndicator(player, isPlaying)
 
         // Middle Section: Controls (Geometric Center)
         Row(
@@ -297,12 +290,17 @@ fun NowPlayingScreen(
             Button(
                 onClick = { showSleepTimerDialog = true },
                 modifier = Modifier.size(36.dp),
-                colors = ButtonDefaults.secondaryButtonColors()
+                colors = if (isSleepActive) {
+                    ButtonDefaults.primaryButtonColors()
+                } else {
+                    ButtonDefaults.secondaryButtonColors()
+                }
             ) {
                 Icon(
                     painter = painterResource(R.drawable.timer),
                     contentDescription = null,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(18.dp),
+                    tint = if (isSleepActive) MaterialTheme.colors.onPrimary else MaterialTheme.colors.onSurface
                 )
             }
         }
@@ -315,7 +313,25 @@ fun NowPlayingScreen(
         ) {
             val columnState = rememberResponsiveColumnState()
             ScalingLazyColumn(columnState = columnState) {
-                item { ListHeader { Text(stringResource(R.string.sleep_timer)) } }
+                item {
+                    ListHeader {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(stringResource(R.string.sleep_timer))
+                            if (isSleepActive) {
+                                val timeText = if (sleepTimeLeft == -1L) {
+                                    stringResource(R.string.end_of_song)
+                                } else {
+                                    makeTimeString(sleepTimeLeft)
+                                }
+                                Text(
+                                    text = timeText,
+                                    style = MaterialTheme.typography.caption2,
+                                    color = MaterialTheme.colors.primary
+                                )
+                            }
+                        }
+                    }
+                }
                 items(listOf(5, 10, 15, 30, 45, 60)) { mins ->
                     Chip(
                         onClick = {
@@ -342,6 +358,35 @@ fun NowPlayingScreen(
     }
 }
 
+@Composable
+private fun PlayerProgressIndicator(
+    player: androidx.media3.common.Player,
+    isPlaying: Boolean
+) {
+    var currentPosition by remember { mutableLongStateOf(0L) }
+    var duration by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(isPlaying) {
+        while (isActive) {
+            if (isPlaying) {
+                currentPosition = player.currentPosition
+                duration = if (player.duration > 0) player.duration else 0L
+            }
+            delay(500)
+        }
+    }
+
+    if (duration > 0) {
+        CircularProgressIndicator(
+            progress = (currentPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f),
+            modifier = Modifier.fillMaxSize(),
+            strokeWidth = 2.dp,
+            indicatorColor = MaterialTheme.colors.primary.copy(alpha = 0.7f),
+            trackColor = MaterialTheme.colors.onSurface.copy(alpha = 0.05f)
+        )
+    }
+}
+
 @OptIn(ExperimentalHorologistApi::class)
 @Composable
 fun WearOptionsPage(
@@ -350,6 +395,7 @@ fun WearOptionsPage(
     onNavigateToLibrary: () -> Unit,
     onNavigateToLiked: () -> Unit,
     onNavigateToDownloads: () -> Unit,
+    onNavigateToCache: () -> Unit,
     onNavigateToHistory: () -> Unit,
     onNavigateToQueue: () -> Unit,
     onNavigateToHomeSection: (String) -> Unit,
@@ -447,6 +493,15 @@ fun WearOptionsPage(
                 onClick = onNavigateToLibrary,
                 label = { Text(stringResource(R.string.filter_library)) },
                 icon = { Icon(painterResource(R.drawable.library_music), contentDescription = null) },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        item {
+            Chip(
+                onClick = onNavigateToCache,
+                label = { Text(stringResource(R.string.filter_cached)) },
+                icon = { Icon(painterResource(R.drawable.cached), contentDescription = null) },
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -568,7 +623,7 @@ fun QueueScreen(playerConnection: com.metrolist.music.playback.PlayerConnection)
             }
         }
         
-        itemsIndexed(queueWindows) { index, window ->
+        itemsIndexed(queueWindows, key = { index, window -> "${window.mediaItem.mediaId}_$index" }) { index, window ->
             val metadata = window.mediaItem.metadata
             val isCurrent = index == currentWindowIndex
             

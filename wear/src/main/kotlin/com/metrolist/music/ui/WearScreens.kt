@@ -53,6 +53,7 @@ import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
 import androidx.wear.compose.foundation.lazy.items
 import androidx.wear.compose.material.*
+import androidx.wear.compose.material.dialog.Dialog
 import androidx.wear.input.RemoteInputIntentHelper
 import androidx.wear.remote.interactions.RemoteActivityHelper
 import coil3.compose.AsyncImage
@@ -1558,6 +1559,9 @@ fun WearSettingsScreen(
     var stopMusicOnTaskClear by rememberPreference(key = StopMusicOnTaskClearKey, defaultValue = true)
     var offBodyAppClose by rememberPreference(key = OffBodyAppCloseKey, defaultValue = false)
     var batterySaverMode by rememberPreference(key = BatterySaverModeKey, defaultValue = false)
+    var crossfadeDuration by rememberPreference(key = CrossfadeDurationKey, defaultValue = 5f)
+    var crossfadeGapless by rememberPreference(key = CrossfadeGaplessKey, defaultValue = true)
+    var showCrossfadeDurationDialog by remember { mutableStateOf(false) }
     val appLanguage by rememberPreference(key = AppLanguageKey, defaultValue = SYSTEM_DEFAULT)
     val contentLanguage by rememberPreference(key = ContentLanguageKey, defaultValue = SYSTEM_DEFAULT)
     val contentCountry by rememberPreference(key = ContentCountryKey, defaultValue = SYSTEM_DEFAULT)
@@ -1663,10 +1667,30 @@ fun WearSettingsScreen(
             ToggleChip(
                 checked = crossfadeEnabled,
                 onCheckedChange = { crossfadeEnabled = it },
-                label = { Text("Crossfade") },
+                label = { Text(stringResource(R.string.crossfade)) },
                 toggleControl = { Checkbox(checked = crossfadeEnabled) },
                 modifier = Modifier.fillMaxWidth()
             )
+        }
+        if (crossfadeEnabled) {
+            item {
+                Chip(
+                    onClick = { showCrossfadeDurationDialog = true },
+                    label = { Text(stringResource(R.string.crossfade_duration)) },
+                    secondaryLabel = { Text("${crossfadeDuration.toInt()}s") },
+                    icon = { Icon(painterResource(R.drawable.timer), null) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            item {
+                ToggleChip(
+                    checked = crossfadeGapless,
+                    onCheckedChange = { crossfadeGapless = it },
+                    label = { Text(stringResource(R.string.crossfade_gapless)) },
+                    toggleControl = { Checkbox(checked = crossfadeGapless) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
 
         item { ListHeader { Text(stringResource(R.string.content), style = MaterialTheme.typography.caption2) } }
@@ -1746,7 +1770,48 @@ fun WearSettingsScreen(
         }
         item { Spacer(Modifier.height(40.dp)) }
     }
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+    if (showCrossfadeDurationDialog) {
+        Dialog(
+            showDialog = showCrossfadeDurationDialog,
+            onDismissRequest = { showCrossfadeDurationDialog = false }
+        ) {
+            val dialogColumnState = rememberResponsiveColumnState()
+            ScalingLazyColumn(columnState = dialogColumnState) {
+                item { ListHeader { Text(stringResource(R.string.crossfade_duration)) } }
+                item {
+                    InlineSlider(
+                        value = crossfadeDuration,
+                        onValueChange = { crossfadeDuration = it },
+                        valueRange = 1f..15f,
+                        steps = 13,
+                        decreaseIcon = { Icon(painterResource(R.drawable.volume_down), null) },
+                        increaseIcon = { Icon(painterResource(R.drawable.volume_up), null) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item {
+                    Text(
+                        text = "${crossfadeDuration.toInt()}s",
+                        style = MaterialTheme.typography.title2,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item {
+                    Chip(
+                        onClick = { showCrossfadeDurationDialog = false },
+                        label = { Text(stringResource(android.R.string.ok)) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
 }
 
 @OptIn(ExperimentalHorologistApi::class)

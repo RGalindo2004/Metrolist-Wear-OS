@@ -1785,8 +1785,8 @@ fun WearSettingsScreen(
                         onValueChange = { crossfadeDuration = it },
                         valueRange = 1f..15f,
                         steps = 13,
-                        decreaseIcon = { Icon(painterResource(R.drawable.volume_down), null) },
-                        increaseIcon = { Icon(painterResource(R.drawable.volume_up), null) },
+                        decreaseIcon = { Icon(painterResource(R.drawable.remove), null) },
+                        increaseIcon = { Icon(painterResource(R.drawable.add), null) },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }

@@ -111,16 +111,25 @@ object OTAUpdater {
     }
 
     private suspend fun downloadAndInstall(context: Context, url: String) {
-        val bytes = client.get(url).bodyAsBytes()
-        val file = File(context.externalCacheDir ?: context.cacheDir, "update.apk")
-        file.writeBytes(bytes)
+        try {
+            val bytes = client.get(url).bodyAsBytes()
+            val file = File(context.cacheDir, "update.apk")
+            if (file.exists()) file.delete()
+            
+            file.writeBytes(bytes)
 
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.FileProvider", file)
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.FileProvider", file)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to download or install update")
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+            }
         }
-        context.startActivity(intent)
     }
 }

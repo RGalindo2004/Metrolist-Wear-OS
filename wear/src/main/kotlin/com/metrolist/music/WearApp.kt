@@ -31,6 +31,7 @@ import com.metrolist.lastfm.LastFM
 import com.metrolist.music.core.BuildConfig as CoreBuildConfig
 import com.metrolist.music.core.R
 import com.metrolist.music.constants.*
+import com.metrolist.music.discord.DiscordRpcManager
 import com.metrolist.music.di.ApplicationScope
 import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.extensions.toInetSocketAddress
@@ -125,6 +126,10 @@ class WearApp :
             }
 
             observeSettingsChanges()
+            
+            launch(Dispatchers.IO) {
+                DiscordRpcManager.init(this@WearApp)
+            }
         }
     }
 

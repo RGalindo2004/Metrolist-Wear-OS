@@ -76,7 +76,6 @@ fun WearMusicPlayer(
     onNavigateToLibrary: () -> Unit,
     onNavigateToLiked: () -> Unit,
     onNavigateToDownloads: () -> Unit,
-    onNavigateToCache: () -> Unit,
     onNavigateToHistory: () -> Unit,
     onNavigateToVolume: () -> Unit,
     onNavigateToQueue: () -> Unit,
@@ -113,7 +112,6 @@ fun WearMusicPlayer(
                 onNavigateToLibrary = onNavigateToLibrary,
                 onNavigateToLiked = onNavigateToLiked,
                 onNavigateToDownloads = onNavigateToDownloads,
-                onNavigateToCache = onNavigateToCache,
                 onNavigateToHistory = onNavigateToHistory,
                 onNavigateToQueue = onNavigateToQueue,
                 onNavigateToHomeSection = onNavigateToHomeSection,
@@ -395,7 +393,6 @@ fun WearOptionsPage(
     onNavigateToLibrary: () -> Unit,
     onNavigateToLiked: () -> Unit,
     onNavigateToDownloads: () -> Unit,
-    onNavigateToCache: () -> Unit,
     onNavigateToHistory: () -> Unit,
     onNavigateToQueue: () -> Unit,
     onNavigateToHomeSection: (String) -> Unit,
@@ -493,15 +490,6 @@ fun WearOptionsPage(
                 onClick = onNavigateToLibrary,
                 label = { Text(stringResource(R.string.filter_library)) },
                 icon = { Icon(painterResource(R.drawable.library_music), contentDescription = null) },
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-
-        item {
-            Chip(
-                onClick = onNavigateToCache,
-                label = { Text(stringResource(R.string.filter_cached)) },
-                icon = { Icon(painterResource(R.drawable.cached), contentDescription = null) },
                 modifier = Modifier.fillMaxWidth()
             )
         }

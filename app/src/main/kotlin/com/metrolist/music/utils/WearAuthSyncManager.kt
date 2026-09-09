@@ -16,8 +16,13 @@ import com.metrolist.music.constants.AuthSyncConstants.KEY_ACCOUNT_NAME
 import com.metrolist.music.constants.AuthSyncConstants.KEY_AUTH_USER
 import com.metrolist.music.constants.AuthSyncConstants.KEY_COOKIE
 import com.metrolist.music.constants.AuthSyncConstants.KEY_DATA_SYNC_ID
+import com.metrolist.music.constants.AuthSyncConstants.KEY_DISCORD_ACCESS_TOKEN
+import com.metrolist.music.constants.AuthSyncConstants.KEY_DISCORD_EXPIRES_AT
+import com.metrolist.music.constants.AuthSyncConstants.KEY_DISCORD_REFRESH_TOKEN
 import com.metrolist.music.constants.AuthSyncConstants.KEY_TIMESTAMP
 import com.metrolist.music.constants.AuthSyncConstants.KEY_VISITOR_DATA
+import com.metrolist.music.discord.DiscordRpcManager
+import com.metrolist.music.discord.DiscordTokenStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
@@ -34,6 +39,7 @@ class WearAuthSyncManager(
     private val dataClient by lazy { Wearable.getDataClient(context) }
 
     fun startSync() {
+        // YT Music Auth Sync
         scope.launch(Dispatchers.IO) {
             combine(
                 context.dataStore.data.map { it[InnerTubeCookieKey] }.distinctUntilChanged(),
@@ -56,6 +62,35 @@ class WearAuthSyncManager(
             }.collect { authData ->
                 syncToWearable(authData)
             }
+        }
+
+        // Discord Auth Sync
+        scope.launch(Dispatchers.IO) {
+            DiscordRpcManager.accessTokenFlow.collect {
+                syncDiscordToWearable()
+            }
+        }
+    }
+
+    private suspend fun syncDiscordToWearable() {
+        DiscordTokenStore.init(context)
+        val accessToken = DiscordTokenStore.retrieve()
+        val refreshToken = DiscordTokenStore.getRefreshToken()
+        val expiresAt = DiscordTokenStore.getExpiresAt()
+
+        try {
+            val request = PutDataMapRequest.create(AUTH_SYNC_PATH).apply {
+                accessToken?.let { dataMap.putString(KEY_DISCORD_ACCESS_TOKEN, it) }
+                refreshToken?.let { dataMap.putString(KEY_DISCORD_REFRESH_TOKEN, it) }
+                if (expiresAt > 0) dataMap.putLong(KEY_DISCORD_EXPIRES_AT, expiresAt)
+                dataMap.putLong(KEY_TIMESTAMP, System.currentTimeMillis())
+                setUrgent()
+            }.asPutDataRequest()
+
+            dataClient.putDataItem(request).await()
+            Timber.d("WearAuthSyncManager: Discord auth data synced successfully")
+        } catch (e: Exception) {
+            Timber.e(e, "WearAuthSyncManager: Failed to sync Discord auth data")
         }
     }
 

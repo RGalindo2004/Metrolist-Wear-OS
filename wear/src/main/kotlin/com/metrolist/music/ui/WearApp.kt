@@ -87,7 +87,6 @@ fun WearApp() {
                                 onNavigateToLibrary = { navController.navigate("library") },
                                 onNavigateToLiked = { navController.navigate("library/liked") },
                                 onNavigateToDownloads = { navController.navigate("library/downloads") },
-                                onNavigateToCache = { navController.navigate("library/cache") },
                                 onNavigateToHistory = { navController.navigate("library/history") },
                                 onNavigateToVolume = { navController.navigate("volume") },
                                 onNavigateToQueue = {},
@@ -223,7 +222,8 @@ fun WearApp() {
                                 onNavigateToDownloads = { navController.navigate("library/downloads") },
                                 onNavigateToCache = { navController.navigate("library/cache") },
                                 onNavigateToHistory = { navController.navigate("library/history") },
-                                onNavigateToLogin = { navController.navigate("login") }
+                                onNavigateToLogin = { navController.navigate("login") },
+                                onNavigateToHomeSection = { sectionType -> navController.navigate("home_section/$sectionType") }
                             )
                         }
                         composable("library/songs") {

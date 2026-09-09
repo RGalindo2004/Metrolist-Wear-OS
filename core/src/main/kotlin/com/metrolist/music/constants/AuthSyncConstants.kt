@@ -18,4 +18,9 @@ object AuthSyncConstants {
     const val KEY_ACCOUNT_EMAIL = "accountEmail"
     const val KEY_ACCOUNT_HANDLE = "accountChannelHandle"
     const val KEY_TIMESTAMP = "timestamp"
+
+    // Discord
+    const val KEY_DISCORD_ACCESS_TOKEN = "discordAccessToken"
+    const val KEY_DISCORD_REFRESH_TOKEN = "discordRefreshToken"
+    const val KEY_DISCORD_EXPIRES_AT = "discordExpiresAt"
 }

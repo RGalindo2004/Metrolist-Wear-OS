@@ -16,7 +16,12 @@ import com.metrolist.music.constants.AuthSyncConstants.KEY_ACCOUNT_NAME
 import com.metrolist.music.constants.AuthSyncConstants.KEY_AUTH_USER
 import com.metrolist.music.constants.AuthSyncConstants.KEY_COOKIE
 import com.metrolist.music.constants.AuthSyncConstants.KEY_DATA_SYNC_ID
+import com.metrolist.music.constants.AuthSyncConstants.KEY_DISCORD_ACCESS_TOKEN
+import com.metrolist.music.constants.AuthSyncConstants.KEY_DISCORD_EXPIRES_AT
+import com.metrolist.music.constants.AuthSyncConstants.KEY_DISCORD_REFRESH_TOKEN
 import com.metrolist.music.constants.AuthSyncConstants.KEY_VISITOR_DATA
+import com.metrolist.music.discord.DiscordRpcManager
+import com.metrolist.music.discord.DiscordTokenStore
 import com.metrolist.music.utils.LoginHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,6 +41,31 @@ class WearAuthListenerService : WearableListenerService() {
                 val visitorData = dataMap.getString(KEY_VISITOR_DATA)
                 val dataSyncId = dataMap.getString(KEY_DATA_SYNC_ID)
                 val authUser = dataMap.getString(KEY_AUTH_USER) ?: "0"
+                
+                // Discord tokens
+                val discordAccessToken = dataMap.getString(KEY_DISCORD_ACCESS_TOKEN)
+                val discordRefreshToken = dataMap.getString(KEY_DISCORD_REFRESH_TOKEN)
+                val discordExpiresAt = if (dataMap.containsKey(KEY_DISCORD_EXPIRES_AT)) dataMap.getLong(KEY_DISCORD_EXPIRES_AT) else 0L
+
+                if (discordAccessToken != null) {
+                    Timber.d("WearAuthListenerService: Received Discord tokens, storing...")
+                    scope.launch {
+                        DiscordTokenStore.init(applicationContext)
+                        DiscordTokenStore.storeFull(
+                            accessToken = discordAccessToken,
+                            refreshToken = discordRefreshToken ?: "",
+                            expiresInSec = if (discordExpiresAt > 0) {
+                                (discordExpiresAt - (System.currentTimeMillis() / 1000L)).coerceAtLeast(0L)
+                            } else 0L
+                        )
+                        // If not ready, initialize RPC
+                        if (!DiscordRpcManager.isInitialized()) {
+                            DiscordRpcManager.init(applicationContext)
+                        } else if (!DiscordRpcManager.isReady()) {
+                            DiscordRpcManager.reconnectWithToken(discordAccessToken)
+                        }
+                    }
+                }
                 
                 if (cookie != null && visitorData != null && dataSyncId != null) {
                     Timber.d("WearAuthListenerService: Received auth sync data, finalizing login...")

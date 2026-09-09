@@ -64,6 +64,7 @@ import com.google.android.horologist.compose.layout.rememberResponsiveColumnStat
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.AlbumItem
 import com.metrolist.innertube.models.ArtistItem
+import com.metrolist.innertube.models.PlaylistItem
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.WatchEndpoint
 import com.metrolist.innertube.models.YTItem
@@ -75,6 +76,10 @@ import com.metrolist.music.LocalSyncUtils
 import com.metrolist.music.WearApp
 import com.metrolist.music.constants.*
 import com.metrolist.music.core.R
+import com.metrolist.music.discord.DiscordAuth
+import com.metrolist.music.discord.DiscordDefaults
+import com.metrolist.music.discord.DiscordRpcManager
+import com.metrolist.music.discord.DiscordTokenStore
 import com.metrolist.music.db.entities.EventWithSong
 import com.metrolist.music.db.entities.Playlist
 import com.metrolist.music.db.entities.PlaylistSong
@@ -95,6 +100,8 @@ import com.metrolist.music.utils.safeDataStoreEdit
 import com.metrolist.music.utils.resize
 import com.metrolist.music.viewmodels.OnlineSearchViewModel
 import com.metrolist.music.viewmodels.WearHomeViewModel
+import com.metrolist.music.viewmodels.WearHistoryViewModel
+import com.metrolist.music.viewmodels.WearLibraryViewModel
 import com.metrolist.music.wear.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -868,7 +875,8 @@ fun WearLibraryScreen(
     onNavigateToDownloads: () -> Unit,
     onNavigateToCache: () -> Unit,
     onNavigateToHistory: () -> Unit,
-    onNavigateToLogin: () -> Unit
+    onNavigateToLogin: () -> Unit,
+    onNavigateToHomeSection: (String) -> Unit
 ) {
     val context = LocalContext.current
     val columnState = rememberResponsiveColumnState()
@@ -953,6 +961,35 @@ fun WearLibraryScreen(
                 modifier = Modifier.fillMaxWidth()
             )
         }
+
+        item { ListHeader { Text(stringResource(R.string.home), style = MaterialTheme.typography.caption2) } }
+
+        item {
+            Chip(
+                onClick = { onNavigateToLiked() },
+                label = { Text(stringResource(R.string.filter_liked)) },
+                icon = { Icon(painterResource(R.drawable.ic_heart), contentDescription = null) },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        item {
+            Chip(
+                onClick = { onNavigateToHomeSection("quick_picks") },
+                label = { Text(stringResource(R.string.quick_picks)) },
+                icon = { Icon(painterResource(R.drawable.grid_view), null) },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        item {
+            Chip(
+                onClick = { onNavigateToHomeSection("for_you") },
+                label = { Text(stringResource(R.string.for_you)) },
+                icon = { Icon(painterResource(R.drawable.ic_heart), null) },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
         
         item { ListHeader { Text(stringResource(R.string.filter_all)) } }
         
@@ -1002,6 +1039,7 @@ fun WearLibrarySongsScreen(
     filterCached: Boolean = false,
     onItemClick: () -> Unit = {}
 ) {
+    val viewModel: WearLibraryViewModel = hiltViewModel()
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current
     val menuState = LocalWearSongMenuState.current
@@ -1009,7 +1047,11 @@ fun WearLibrarySongsScreen(
     val focusRequester = remember { FocusRequester() }
     val coroutineScope = rememberCoroutineScope()
 
-    val songs by remember(filterLiked, filterDownloaded, filterCached) {
+    val librarySource by viewModel.librarySource.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val remoteItems by viewModel.items.collectAsStateWithLifecycle()
+
+    val localSongs by remember(filterLiked, filterDownloaded, filterCached) {
         when {
             filterLiked -> database.likedSongs(SongSortType.CREATE_DATE, true)
             filterDownloaded -> database.downloadedSongs(SongSortType.CREATE_DATE, true)
@@ -1034,43 +1076,95 @@ fun WearLibrarySongsScreen(
                 )
             }
         }
-        
-        if (filterCached && songs.isNotEmpty()) {
+
+        if (!filterDownloaded && !filterCached) {
             item {
-                Chip(
-                    onClick = {
-                        coroutineScope.launch(Dispatchers.IO) {
-                            val playerCache = playerConnection?.service?.playerCache
-                            playerCache?.keys?.forEach { key ->
-                                playerCache.removeResource(key)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)
+                ) {
+                    CompactChip(
+                        onClick = { viewModel.setSource(HistorySource.LOCAL) },
+                        label = { Text(stringResource(R.string.local_history)) }, // Reusing strings for now
+                        colors = if (librarySource == HistorySource.LOCAL) ChipDefaults.primaryChipColors() else ChipDefaults.secondaryChipColors(),
+                        modifier = Modifier.weight(1f)
+                    )
+                    CompactChip(
+                        onClick = { 
+                            viewModel.setSource(HistorySource.REMOTE)
+                            if (filterLiked) {
+                                viewModel.loadLikedSongs()
+                            } else {
+                                viewModel.loadLibrary("FEmusic_library_corpus_track_list")
                             }
-                            // Also clear flags in DB
-                            songs.forEach { song ->
-                                database.query { update(song.song.copy(dateDownload = null)) }
-                            }
-                        }
-                    },
-                    label = { Text(stringResource(R.string.clear_song_cache)) },
-                    icon = { Icon(painterResource(R.drawable.clear_all), contentDescription = null) },
-                    colors = ChipDefaults.secondaryChipColors(),
-                    modifier = Modifier.fillMaxWidth()
-                )
+                        },
+                        label = { Text(stringResource(R.string.remote_history)) },
+                        colors = if (librarySource == HistorySource.REMOTE) ChipDefaults.primaryChipColors() else ChipDefaults.secondaryChipColors(),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
         
-        items(songs, key = { it.song.id }) { song ->
-            WearSongChip(
-                title = song.song.title,
-                artists = song.artists.joinToString { it.name },
-                thumbnailUrl = song.song.thumbnailUrl,
-                onClick = {
-                    playerConnection?.playQueue(ListQueue(items = listOf(song.toMediaItem())))
-                    onItemClick()
-                },
-                onMenuClick = {
-                    menuState.show(song.toMediaMetadata())
+        if (librarySource == HistorySource.LOCAL) {
+            if (filterCached && localSongs.isNotEmpty()) {
+                item {
+                    Chip(
+                        onClick = {
+                            coroutineScope.launch(Dispatchers.IO) {
+                                val playerCache = playerConnection?.service?.playerCache
+                                playerCache?.keys?.forEach { key ->
+                                    playerCache.removeResource(key)
+                                }
+                                // Also clear flags in DB
+                                localSongs.forEach { song ->
+                                    database.query { update(song.song.copy(dateDownload = null)) }
+                                }
+                            }
+                        },
+                        label = { Text(stringResource(R.string.clear_song_cache)) },
+                        icon = { Icon(painterResource(R.drawable.clear_all), contentDescription = null) },
+                        colors = ChipDefaults.secondaryChipColors(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
-            )
+            }
+            
+            items(localSongs, key = { it.song.id }) { song ->
+                WearSongChip(
+                    title = song.song.title,
+                    artists = song.artists.joinToString { it.name },
+                    thumbnailUrl = song.song.thumbnailUrl,
+                    onClick = {
+                        playerConnection?.playQueue(ListQueue(items = listOf(song.toMediaItem())))
+                        onItemClick()
+                    },
+                    onMenuClick = {
+                        menuState.show(song.toMediaMetadata())
+                    }
+                )
+            }
+        } else {
+            if (isLoading) {
+                item { Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
+            } else {
+                items(remoteItems, key = { (it as? SongItem)?.id ?: it.hashCode().toString() }) { item ->
+                    if (item is SongItem) {
+                        WearSongChip(
+                            title = item.title,
+                            artists = item.artists.joinToString { it.name },
+                            thumbnailUrl = item.thumbnail,
+                            onClick = {
+                                playerConnection?.playQueue(YouTubeQueue(WatchEndpoint(videoId = item.id)))
+                                onItemClick()
+                            },
+                            onMenuClick = {
+                                menuState.show(item.toMediaMetadata())
+                            }
+                        )
+                    }
+                }
+            }
         }
         item {
             Spacer(Modifier.height(40.dp))
@@ -1082,32 +1176,93 @@ fun WearLibrarySongsScreen(
 @OptIn(ExperimentalHorologistApi::class)
 @Composable
 fun WearHistoryScreen(onItemClick: () -> Unit = {}) {
-    val database = LocalDatabase.current
+    val viewModel: WearHistoryViewModel = hiltViewModel()
     val playerConnection = LocalPlayerConnection.current
     val menuState = LocalWearSongMenuState.current
     val columnState = rememberResponsiveColumnState()
     val focusRequester = remember { FocusRequester() }
 
-    val history by database.events().collectAsStateWithLifecycle(initialValue = emptyList())
+    val historySource by viewModel.historySource.collectAsStateWithLifecycle()
+    val localHistory by viewModel.localHistory.collectAsStateWithLifecycle()
+    val remoteHistory by viewModel.remoteHistory.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
 
     ScalingLazyColumn(
         columnState = columnState,
         modifier = Modifier.fillMaxSize().focusRequester(focusRequester).focusable()
     ) {
         item { ListHeader { Text(stringResource(R.string.history)) } }
-        items(history, key = { it.event.id }) { event ->
-            WearSongChip(
-                title = event.song.song.title,
-                artists = event.song.artists.joinToString { it.name },
-                thumbnailUrl = event.song.song.thumbnailUrl,
-                onClick = {
-                    playerConnection?.playQueue(ListQueue(items = listOf(event.song.toMediaItem())))
-                    onItemClick()
-                },
-                onMenuClick = {
-                    menuState.show(event.song.toMediaMetadata())
+
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)
+            ) {
+                CompactChip(
+                    onClick = { viewModel.setSource(HistorySource.LOCAL) },
+                    label = { Text(stringResource(R.string.local_history)) },
+                    colors = if (historySource == HistorySource.LOCAL) ChipDefaults.primaryChipColors() else ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.weight(1f)
+                )
+                CompactChip(
+                    onClick = { viewModel.setSource(HistorySource.REMOTE) },
+                    label = { Text(stringResource(R.string.remote_history)) },
+                    colors = if (historySource == HistorySource.REMOTE) ChipDefaults.primaryChipColors() else ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        if (historySource == HistorySource.LOCAL) {
+            items(localHistory, key = { it.event.id }) { event ->
+                WearSongChip(
+                    title = event.song.song.title,
+                    artists = event.song.artists.joinToString { it.name },
+                    thumbnailUrl = event.song.song.thumbnailUrl,
+                    onClick = {
+                        playerConnection?.playQueue(ListQueue(items = listOf(event.song.toMediaItem())))
+                        onItemClick()
+                    },
+                    onMenuClick = {
+                        menuState.show(event.song.toMediaMetadata())
+                    }
+                )
+            }
+        } else {
+            if (isLoading) {
+                item {
+                    Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
                 }
-            )
+            } else if (remoteHistory?.sections.isNullOrEmpty()) {
+                item {
+                    Text(
+                        text = stringResource(R.string.no_results_found),
+                        modifier = Modifier.fillMaxWidth().padding(24.dp),
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.caption2
+                    )
+                }
+            } else {
+                remoteHistory?.sections?.forEach { section ->
+                    item { ListHeader { Text(section.title, style = MaterialTheme.typography.caption2) } }
+                    items(section.songs, key = { it.id + section.title }) { songItem ->
+                        WearSongChip(
+                            title = songItem.title,
+                            artists = songItem.artists.joinToString { it.name },
+                            thumbnailUrl = songItem.thumbnail,
+                            onClick = {
+                                playerConnection?.playQueue(YouTubeQueue(WatchEndpoint(videoId = songItem.id)))
+                                onItemClick()
+                            },
+                            onMenuClick = {
+                                menuState.show(songItem.toMediaMetadata())
+                            }
+                        )
+                    }
+                }
+            }
         }
         item { Spacer(Modifier.height(40.dp)) }
     }
@@ -1117,32 +1272,60 @@ fun WearHistoryScreen(onItemClick: () -> Unit = {}) {
 @OptIn(ExperimentalHorologistApi::class)
 @Composable
 fun WearLibraryAlbumsScreen(onAlbumClick: (String) -> Unit) {
+    val viewModel: WearLibraryViewModel = hiltViewModel()
     val database = LocalDatabase.current
     val columnState = rememberResponsiveColumnState()
     val focusRequester = remember { FocusRequester() }
 
-    val albums by database.albums(AlbumSortType.CREATE_DATE, true).collectAsStateWithLifecycle(initialValue = emptyList())
+    val librarySource by viewModel.librarySource.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val remoteItems by viewModel.items.collectAsStateWithLifecycle()
+
+    val localAlbums by database.albums(AlbumSortType.CREATE_DATE, true).collectAsStateWithLifecycle(initialValue = emptyList())
 
     ScalingLazyColumn(
         columnState = columnState,
         modifier = Modifier.fillMaxSize().focusRequester(focusRequester).focusable()
     ) {
         item { ListHeader { Text(stringResource(R.string.albums)) } }
-        items(albums, key = { it.id }) { album ->
-            Chip(
-                onClick = { onAlbumClick(album.id) },
-                label = { Text(album.album.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                secondaryLabel = { Text(album.artists.joinToString { it.name }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                icon = {
-                    AsyncImage(
-                        model = album.album.thumbnailUrl?.resize(100, 100),
-                        contentDescription = null,
-                        modifier = Modifier.size(ChipDefaults.IconSize).clip(RoundedCornerShape(4.dp)),
-                        contentScale = ContentScale.Crop
-                    )
-                },
-                modifier = Modifier.fillMaxWidth()
+
+        item {
+            LibrarySourceToggle(
+                currentSource = librarySource,
+                onSourceChanged = { 
+                    viewModel.setSource(it)
+                    if (it == HistorySource.REMOTE) viewModel.loadLibrary("FEmusic_library_corpus_track_albums")
+                }
             )
+        }
+
+        if (librarySource == HistorySource.LOCAL) {
+            items(localAlbums, key = { it.id }) { album ->
+                AlbumChip(album) { onAlbumClick(album.id) }
+            }
+        } else {
+            if (isLoading) {
+                item { Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
+            } else {
+                items(remoteItems, key = { (it as? AlbumItem)?.browseId ?: it.hashCode().toString() }) { item ->
+                    if (item is AlbumItem) {
+                        Chip(
+                            onClick = { onAlbumClick("online/album/${item.browseId}") },
+                            label = { Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            secondaryLabel = { Text(item.artists?.joinToString { it.name } ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            icon = {
+                                AsyncImage(
+                                    model = item.thumbnail.resize(100, 100),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(ChipDefaults.IconSize).clip(RoundedCornerShape(4.dp)),
+                                    contentScale = ContentScale.Crop
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
         }
         item { Spacer(Modifier.height(40.dp)) }
     }
@@ -1188,31 +1371,71 @@ fun WearAlbumSongsScreen(albumId: String, onItemClick: () -> Unit) {
 @OptIn(ExperimentalHorologistApi::class)
 @Composable
 fun WearLibraryArtistsScreen(onArtistClick: (String) -> Unit) {
+    val viewModel: WearLibraryViewModel = hiltViewModel()
     val database = LocalDatabase.current
     val columnState = rememberResponsiveColumnState()
     val focusRequester = remember { FocusRequester() }
 
-    val artists by database.artists(ArtistSortType.CREATE_DATE, true).collectAsStateWithLifecycle(initialValue = emptyList())
+    val librarySource by viewModel.librarySource.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val remoteItems by viewModel.items.collectAsStateWithLifecycle()
+
+    val localArtists by database.artists(ArtistSortType.CREATE_DATE, true).collectAsStateWithLifecycle(initialValue = emptyList())
 
     ScalingLazyColumn(
         columnState = columnState,
         modifier = Modifier.fillMaxSize().focusRequester(focusRequester).focusable()
     ) {
         item { ListHeader { Text(stringResource(R.string.artists)) } }
-        items(artists, key = { it.id }) { artist ->
-            Chip(
-                onClick = { onArtistClick(artist.id) },
-                label = { Text(artist.artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                icon = {
-                    AsyncImage(
-                        model = artist.artist.thumbnailUrl?.resize(100, 100),
-                        contentDescription = null,
-                        modifier = Modifier.size(ChipDefaults.IconSize).clip(CircleShape),
-                        contentScale = ContentScale.Crop
-                    )
-                },
-                modifier = Modifier.fillMaxWidth()
+
+        item {
+            LibrarySourceToggle(
+                currentSource = librarySource,
+                onSourceChanged = { 
+                    viewModel.setSource(it)
+                    if (it == HistorySource.REMOTE) viewModel.loadLibrary("FEmusic_library_corpus_track_artists")
+                }
             )
+        }
+
+        if (librarySource == HistorySource.LOCAL) {
+            items(localArtists, key = { it.id }) { artist ->
+                Chip(
+                    onClick = { onArtistClick(artist.id) },
+                    label = { Text(artist.artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    icon = {
+                        AsyncImage(
+                            model = artist.artist.thumbnailUrl?.resize(100, 100),
+                            contentDescription = null,
+                            modifier = Modifier.size(ChipDefaults.IconSize).clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        } else {
+            if (isLoading) {
+                item { Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
+            } else {
+                items(remoteItems, key = { (it as? ArtistItem)?.id ?: it.hashCode().toString() }) { item ->
+                    if (item is ArtistItem) {
+                        Chip(
+                            onClick = { onArtistClick("online/artist/${item.id}") },
+                            label = { Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            icon = {
+                                AsyncImage(
+                                    model = item.thumbnail?.resize(100, 100),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(ChipDefaults.IconSize).clip(CircleShape),
+                                    contentScale = ContentScale.Crop
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
         }
         item { Spacer(Modifier.height(40.dp)) }
     }
@@ -1258,36 +1481,102 @@ fun WearArtistSongsScreen(artistId: String, onItemClick: () -> Unit) {
 @OptIn(ExperimentalHorologistApi::class)
 @Composable
 fun WearLibraryPlaylistsScreen(onPlaylistClick: (String) -> Unit) {
+    val viewModel: WearLibraryViewModel = hiltViewModel()
     val database = LocalDatabase.current
     val columnState = rememberResponsiveColumnState()
     val focusRequester = remember { FocusRequester() }
 
-    val playlists by database.playlists(PlaylistSortType.CREATE_DATE, true).collectAsStateWithLifecycle(initialValue = emptyList())
+    val librarySource by viewModel.librarySource.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val remoteItems by viewModel.items.collectAsStateWithLifecycle()
+
+    val localPlaylists by database.playlists(PlaylistSortType.CREATE_DATE, true).collectAsStateWithLifecycle(initialValue = emptyList())
 
     ScalingLazyColumn(
         columnState = columnState,
         modifier = Modifier.fillMaxSize().focusRequester(focusRequester).focusable()
     ) {
         item { ListHeader { Text(stringResource(R.string.playlists)) } }
-        items(playlists, key = { it.id }) { playlist ->
-            Chip(
-                onClick = { onPlaylistClick(playlist.id) },
-                label = { Text(playlist.playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                secondaryLabel = { Text(pluralStringResource(R.plurals.n_song, playlist.songCount, playlist.songCount)) },
-                icon = {
-                    AsyncImage(
-                        model = playlist.playlist.thumbnailUrl?.resize(100, 100),
-                        contentDescription = null,
-                        modifier = Modifier.size(ChipDefaults.IconSize).clip(RoundedCornerShape(4.dp)),
-                        contentScale = ContentScale.Crop
-                    )
-                },
-                modifier = Modifier.fillMaxWidth()
+
+        item {
+            LibrarySourceToggle(
+                currentSource = librarySource,
+                onSourceChanged = { 
+                    viewModel.setSource(it)
+                    if (it == HistorySource.REMOTE) viewModel.loadLibrary("FEmusic_liked_playlists")
+                }
             )
+        }
+
+        if (librarySource == HistorySource.LOCAL) {
+            items(localPlaylists, key = { it.id }) { playlist ->
+                Chip(
+                    onClick = { onPlaylistClick(playlist.id) },
+                    label = { Text(playlist.playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    secondaryLabel = { Text(pluralStringResource(R.plurals.n_song, playlist.songCount, playlist.songCount)) },
+                    icon = {
+                        AsyncImage(
+                            model = playlist.playlist.thumbnailUrl?.resize(100, 100),
+                            contentDescription = null,
+                            modifier = Modifier.size(ChipDefaults.IconSize).clip(RoundedCornerShape(4.dp)),
+                            contentScale = ContentScale.Crop
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        } else {
+            if (isLoading) {
+                item { Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
+            } else {
+                items(remoteItems, key = { (it as? PlaylistItem)?.id ?: it.hashCode().toString() }) { item ->
+                    if (item is PlaylistItem) {
+                        Chip(
+                            onClick = { onPlaylistClick("online/playlist/${item.id}") },
+                            label = { Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            secondaryLabel = { Text(item.author?.name ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            icon = {
+                                AsyncImage(
+                                    model = item.thumbnail?.resize(100, 100),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(ChipDefaults.IconSize).clip(RoundedCornerShape(4.dp)),
+                                    contentScale = ContentScale.Crop
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
         }
         item { Spacer(Modifier.height(40.dp)) }
     }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
+}
+
+@Composable
+fun LibrarySourceToggle(
+    currentSource: HistorySource,
+    onSourceChanged: (HistorySource) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth().padding(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)
+    ) {
+        CompactChip(
+            onClick = { onSourceChanged(HistorySource.LOCAL) },
+            label = { Text(stringResource(R.string.local_history)) },
+            colors = if (currentSource == HistorySource.LOCAL) ChipDefaults.primaryChipColors() else ChipDefaults.secondaryChipColors(),
+            modifier = Modifier.weight(1f)
+        )
+        CompactChip(
+            onClick = { onSourceChanged(HistorySource.REMOTE) },
+            label = { Text(stringResource(R.string.remote_history)) },
+            colors = if (currentSource == HistorySource.REMOTE) ChipDefaults.primaryChipColors() else ChipDefaults.secondaryChipColors(),
+            modifier = Modifier.weight(1f)
+        )
+    }
 }
 
 @OptIn(ExperimentalHorologistApi::class)
@@ -1559,12 +1848,17 @@ fun WearSettingsScreen(
     var stopMusicOnTaskClear by rememberPreference(key = StopMusicOnTaskClearKey, defaultValue = true)
     var offBodyAppClose by rememberPreference(key = OffBodyAppCloseKey, defaultValue = false)
     var batterySaverMode by rememberPreference(key = BatterySaverModeKey, defaultValue = false)
+    var discordRPCEnabled by rememberPreference(key = EnableDiscordRPCKey, defaultValue = true)
+    
     var crossfadeDuration by rememberPreference(key = CrossfadeDurationKey, defaultValue = 5f)
     var crossfadeGapless by rememberPreference(key = CrossfadeGaplessKey, defaultValue = true)
     var showCrossfadeDurationDialog by remember { mutableStateOf(false) }
     val appLanguage by rememberPreference(key = AppLanguageKey, defaultValue = SYSTEM_DEFAULT)
     val contentLanguage by rememberPreference(key = ContentLanguageKey, defaultValue = SYSTEM_DEFAULT)
     val contentCountry by rememberPreference(key = ContentCountryKey, defaultValue = SYSTEM_DEFAULT)
+
+    val discordStatus by DiscordRpcManager.connectionStatus.collectAsStateWithLifecycle()
+    val discordUser by DiscordRpcManager.currentUser.collectAsStateWithLifecycle()
 
     val accountName by remember(context) {
         context.dataStore.data.map { it[AccountNameKey] ?: it[AccountEmailKey] }
@@ -1750,6 +2044,85 @@ fun WearSettingsScreen(
                 onCheckedChange = { stopMusicOnTaskClear = it },
                 label = { Text(stringResource(R.string.stop_music_on_task_clear)) },
                 toggleControl = { Checkbox(checked = stopMusicOnTaskClear) },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        item { ListHeader { Text(stringResource(R.string.discord_integration), style = MaterialTheme.typography.caption2) } }
+        
+        item {
+            ToggleChip(
+                checked = discordRPCEnabled,
+                onCheckedChange = { 
+                    discordRPCEnabled = it
+                    DiscordRpcManager.notifySettingsChanged()
+                },
+                label = { Text(stringResource(R.string.enable_discord_rpc)) },
+                toggleControl = { Checkbox(checked = discordRPCEnabled) },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        item {
+            val remoteActivityHelper = remember { RemoteActivityHelper(context) }
+            Chip(
+                onClick = {
+                    if (DiscordRpcManager.isAuthorized()) {
+                        DiscordRpcManager.logout()
+                    } else {
+                        coroutineScope.launch {
+                            val pkce = DiscordAuth.generatePkcePair()
+                            val state = "wear_auth_${System.currentTimeMillis()}"
+
+                            try {
+                                val nodes = Wearable.getNodeClient(context).connectedNodes.await()
+                                if (nodes.isEmpty()) {
+                                    Toast.makeText(context, R.string.phone_not_connected, Toast.LENGTH_LONG).show()
+                                    return@launch
+                                }
+
+                                val authUrl = DiscordDefaults.DISCORD_OAUTH_AUTHORIZE +
+                                    "?client_id=${com.metrolist.music.core.BuildConfig.DISCORD_APP_ID}" +
+                                    "&response_type=code" +
+                                    "&redirect_uri=${java.net.URLEncoder.encode(DiscordAuth.REDIRECT_URI, "UTF-8")}" +
+                                    "&scope=${java.net.URLEncoder.encode(DiscordDefaults.DISCORD_SCOPES, "UTF-8")}" +
+                                    "&state=$state" +
+                                    "&code_challenge_method=S256" +
+                                    "&code_challenge=${pkce.challenge}"
+
+                                remoteActivityHelper.startRemoteActivity(
+                                    Intent(Intent.ACTION_VIEW).apply {
+                                        data = authUrl.toUri()
+                                        addCategory(Intent.CATEGORY_BROWSABLE)
+                                    }
+                                ).await()
+                                Toast.makeText(context, "Revisa tu celular para iniciar sesión", Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) {
+                                Timber.e(e, "Failed to launch remote Discord auth")
+                                Toast.makeText(context, "Error al abrir en el celular", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                },
+                label = { 
+                    Text(
+                        discordUser?.username ?: discordUser?.name ?: stringResource(
+                            if (DiscordRpcManager.isAuthorized()) R.string.discord_status_authorized else R.string.not_logged_in
+                        )
+                    )
+                },
+                secondaryLabel = {
+                    Text(
+                        when {
+                            discordStatus == DiscordRpcManager.Status.Connected -> stringResource(R.string.discord_status_online)
+                            DiscordRpcManager.isAuthorized() -> stringResource(R.string.action_logout)
+                            else -> "Tap to Login on Phone"
+                        }
+                    )
+                },
+                icon = {
+                    Icon(painterResource(R.drawable.discord), contentDescription = null)
+                },
                 modifier = Modifier.fillMaxWidth()
             )
         }

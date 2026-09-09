@@ -43,12 +43,14 @@ import com.metrolist.music.utils.SyncUtils
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.setAppLocale
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import timber.log.Timber
+import java.io.File
 import java.util.Locale
 import javax.inject.Inject
 
@@ -137,6 +139,19 @@ class WearMainActivity : ComponentActivity() {
 
         // Initialize Listen Together manager
         listenTogetherManager.initialize()
+
+        // Clean up any leftover update APK from OTA
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val updateFile = File(externalCacheDir ?: cacheDir, "update.apk")
+                if (updateFile.exists()) {
+                    updateFile.delete()
+                    Timber.d("WearMainActivity: Leftover update.apk deleted")
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to clean up update.apk")
+            }
+        }
 
         setContent {
             val batterySaverMode by remember {

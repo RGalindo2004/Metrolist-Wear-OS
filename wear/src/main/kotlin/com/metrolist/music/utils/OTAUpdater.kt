@@ -7,8 +7,11 @@ package com.metrolist.music.utils
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import com.metrolist.music.wear.BuildConfig
@@ -77,7 +80,7 @@ object OTAUpdater {
                     }
 
                     if (downloadUrl != null) {
-                        if (checkInstallPermission(context)) {
+                        if (checkStoragePermission(context) && checkInstallPermission(context)) {
                             withContext(Dispatchers.Main) {
                                 Toast.makeText(context, R.string.ota_downloading, Toast.LENGTH_SHORT).show()
                             }
@@ -98,6 +101,19 @@ object OTAUpdater {
         }
     }
 
+    private suspend fun checkStoragePermission(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return true // Scoped storage
+        val permission = android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+        if (ContextCompat.checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED) {
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "Please grant storage permissions to update", Toast.LENGTH_LONG).show()
+            }
+            // Note: For Wear, we usually redirect to settings or just show toast as requestPermission is complex in this context
+            return false
+        }
+        return true
+    }
+
     private fun checkInstallPermission(context: Context): Boolean {
         if (!context.packageManager.canRequestPackageInstalls()) {
             val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
@@ -113,7 +129,7 @@ object OTAUpdater {
     private suspend fun downloadAndInstall(context: Context, url: String) {
         try {
             val bytes = client.get(url).bodyAsBytes()
-            val file = File(context.cacheDir, "update.apk")
+            val file = File(context.externalCacheDir ?: context.cacheDir, "update.apk")
             if (file.exists()) file.delete()
             
             file.writeBytes(bytes)

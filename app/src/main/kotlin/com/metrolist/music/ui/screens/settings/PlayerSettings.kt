@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -77,6 +78,10 @@ import com.metrolist.music.ui.utils.backToMain
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import kotlin.math.roundToInt
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.Alignment
 import com.metrolist.music.ui.component.SleepTimerDialog
 import com.metrolist.music.constants.SleepTimerEnabledKey
 import com.metrolist.music.constants.SleepTimerRepeatKey
@@ -84,6 +89,7 @@ import com.metrolist.music.constants.SleepTimerCustomDaysKey
 import com.metrolist.music.constants.SleepTimerEndTimeKey
 import com.metrolist.music.constants.SleepTimerStartTimeKey
 import com.metrolist.music.constants.SleepTimerDayTimesKey
+import com.metrolist.music.constants.SleepTimerDefaultKey
 import com.metrolist.music.ui.component.decodeDayTimes
 import com.metrolist.music.ui.component.encodeDayTimes
 import com.metrolist.music.constants.SleepTimerFadeOutKey
@@ -572,6 +578,7 @@ fun PlayerSettings(
         Spacer(modifier = Modifier.height(27.dp))
 
         var showSleepTimerDialog by remember { mutableStateOf(false) }
+        var showSleepTimerDurationDialog by remember { mutableStateOf(false) }
 
         val (sleepTimerEnabled, onSleepTimerEnabledChange) = rememberPreference(
             SleepTimerEnabledKey,
@@ -598,14 +605,69 @@ fun PlayerSettings(
             SleepTimerDayTimesKey,
             defaultValue = ""
         )
+        val (sleepTimerDefault, onSleepTimerDefaultChange) = rememberPreference(
+            SleepTimerDefaultKey,
+            defaultValue = 30f
+        )
+        var durationSliderValue by remember(sleepTimerDefault) { mutableFloatStateOf(sleepTimerDefault) }
 
         val (sleepTimerStopAfterCurrentSong, onSleepTimerStopAfterCurrentSongChange) = rememberPreference (
-        SleepTimerStopAfterCurrentSongKey,
-        defaultValue = false)
+            SleepTimerStopAfterCurrentSongKey,
+            defaultValue = false
+        )
         val (sleepTimerFadeOut, onSleepTimerFadeOutChange) = rememberPreference(
             SleepTimerFadeOutKey,
             false
         )
+
+        if (showSleepTimerDurationDialog) {
+            AlertDialog(
+                onDismissRequest = { showSleepTimerDurationDialog = false },
+                icon = {
+                    Icon(
+                        painter = painterResource(R.drawable.bedtime),
+                        contentDescription = null,
+                    )
+                },
+                title = { Text(stringResource(R.string.sleep_timer_duration)) },
+                text = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = pluralStringResource(
+                                R.plurals.minute,
+                                durationSliderValue.roundToInt(),
+                                durationSliderValue.roundToInt(),
+                            ),
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+
+                        Slider(
+                            value = durationSliderValue,
+                            onValueChange = { durationSliderValue = it },
+                            valueRange = 5f..120f,
+                            steps = (120 - 5) / 5 - 1,
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            onSleepTimerDefaultChange(durationSliderValue)
+                            showSleepTimerDurationDialog = false
+                        },
+                    ) {
+                        Text(stringResource(android.R.string.ok))
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { showSleepTimerDurationDialog = false },
+                    ) {
+                        Text(stringResource(android.R.string.cancel))
+                    }
+                },
+            )
+        }
 
         if (showSleepTimerDialog) {
             val customDays = sleepTimerCustomDays.split(",").mapNotNull { it.toIntOrNull() }
@@ -657,34 +719,47 @@ fun PlayerSettings(
                     )
                 )
 
-                    add(
-                        Material3SettingsItem(
-                            icon = painterResource(R.drawable.baseline_event_repeat_24),
-                            title = { Text(stringResource(R.string.sleep_timer_repeat)) },
-                            description = {
-                                Text(
-                                    stringResource(R.string.sleep_timer_repeat_description)
-                                )
-                            },
-                            trailingContent = {
-                                Switch(
-                                    checked = sleepTimerEnabled,
-                                    onCheckedChange = {showSleepTimerDialog = true},
-                                    thumbContent = {
-                                        Icon(
-                                            painter = painterResource(
-                                                id = if (sleepTimerEnabled) R.drawable.check else R.drawable.close
-                                            ),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(SwitchDefaults.IconSize)
-                                        )
-                                    }
-                                )
-                            },
-                            onClick = { showSleepTimerDialog = true }
-                        )
+                add(
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.baseline_event_repeat_24),
+                        title = { Text(stringResource(R.string.sleep_timer_repeat)) },
+                        description = {
+                            Text(
+                                stringResource(R.string.sleep_timer_repeat_description)
+                            )
+                        },
+                        trailingContent = {
+                            Icon(
+                                painter = painterResource(R.drawable.navigate_next),
+                                contentDescription = null
+                            )
+                        },
+                        onClick = { showSleepTimerDialog = true }
                     )
+                )
 
+                add(
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.bedtime),
+                        title = { Text(stringResource(R.string.sleep_timer_duration)) },
+                        description = {
+                            Text(
+                                pluralStringResource(
+                                    R.plurals.minute,
+                                    sleepTimerDefault.roundToInt(),
+                                    sleepTimerDefault.roundToInt()
+                                )
+                            )
+                        },
+                        trailingContent = {
+                            Icon(
+                                painter = painterResource(R.drawable.navigate_next),
+                                contentDescription = null
+                            )
+                        },
+                        onClick = { showSleepTimerDurationDialog = true }
+                    )
+                )
 
                 add(
                     Material3SettingsItem(
@@ -733,7 +808,6 @@ fun PlayerSettings(
                         onClick = { onSleepTimerFadeOutChange(!sleepTimerFadeOut) }
                     )
                 )
-
             }
         )
 

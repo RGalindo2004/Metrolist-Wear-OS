@@ -3,8 +3,10 @@ package com.metrolist.music.ui.player
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
@@ -569,7 +571,11 @@ fun QueueScreen(playerConnection: com.metrolist.music.playback.PlayerConnection)
     ) {
         item {
             ListHeader {
-                Text(stringResource(R.string.playback_queue))
+                Text(
+                    text = stringResource(R.string.playback_queue),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
 
@@ -614,44 +620,52 @@ fun QueueScreen(playerConnection: com.metrolist.music.playback.PlayerConnection)
         itemsIndexed(queueWindows, key = { index, window -> "${window.mediaItem.mediaId}_$index" }) { index, window ->
             val metadata = window.mediaItem.metadata
             val isCurrent = index == currentWindowIndex
-            
+            val nowPlayingText = stringResource(R.string.now_playing)
+            val unknownArtistText = stringResource(R.string.widget_recognizer_unknown_artist)
+
+            val artistsText = remember(metadata, isCurrent, nowPlayingText, unknownArtistText) {
+                val prefix = if (isCurrent) "$nowPlayingText • " else ""
+                val names = metadata?.artists?.joinToString { it.name }
+                prefix + (names.takeIf { !it.isNullOrEmpty() } ?: unknownArtistText)
+            }
+            val titleText = remember(metadata?.title) {
+                metadata?.title ?: ""
+            }
+            val resizedThumbnail = remember(metadata?.thumbnailUrl) {
+                metadata?.thumbnailUrl?.resize(100, 100)
+            }
+
             Chip(
                 onClick = { playerConnection.player.seekTo(index, 0) },
                 label = { 
-                    Text(
-                        text = metadata?.title ?: stringResource(R.string.untitled),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
-                    ) 
-                },
-                secondaryLabel = {
-                    val nowPlayingPrefix = if (isCurrent) "${stringResource(R.string.now_playing)} • " else ""
-                    Text(
-                        text = nowPlayingPrefix + 
-                               (metadata?.artists?.joinToString { it.name } ?: stringResource(R.string.widget_recognizer_unknown_artist)),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = if (isCurrent) MaterialTheme.colors.primary else MaterialTheme.colors.secondary
-                    )
-                },
-                icon = {
-                    Box(
-                        modifier = Modifier
-                            .size(ChipDefaults.IconSize)
-                            .clip(CircleShape)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        AsyncImage(
-                            model = metadata?.thumbnailUrl?.resize(100, 100),
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop,
-                            alpha = 0.5f
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = titleText.ifEmpty { stringResource(R.string.untitled) },
+                                style = MaterialTheme.typography.button,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
+                            )
+                            Text(
+                                text = artistsText,
+                                style = MaterialTheme.typography.caption2,
+                                color = if (isCurrent) MaterialTheme.colors.primary else MaterialTheme.colors.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Spacer(Modifier.width(4.dp))
                         Box(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .combinedClickable(
+                                .size(24.dp)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
                                     onClick = {
                                         metadata?.let { menuState.show(it) }
                                     }
@@ -662,10 +676,20 @@ fun QueueScreen(playerConnection: com.metrolist.music.playback.PlayerConnection)
                                 painter = painterResource(R.drawable.more_vert),
                                 contentDescription = "Menu",
                                 modifier = Modifier.size(16.dp),
-                                tint = Color.White
+                                tint = if (isCurrent) MaterialTheme.colors.primary else LocalContentColor.current
                             )
                         }
                     }
+                },
+                icon = {
+                    AsyncImage(
+                        model = resizedThumbnail,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(ChipDefaults.IconSize)
+                            .clip(CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
                 },
                 colors = if (isCurrent) 
                     ChipDefaults.gradientBackgroundChipColors()

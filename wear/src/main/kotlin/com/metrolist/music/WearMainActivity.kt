@@ -29,7 +29,6 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.metrolist.music.constants.AppLanguageKey
 import com.metrolist.music.constants.BatterySaverModeKey
-import com.metrolist.music.constants.OffBodyAppCloseKey
 import com.metrolist.music.constants.SYSTEM_DEFAULT
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.listentogether.ListenTogetherManager
@@ -38,7 +37,6 @@ import com.metrolist.music.playback.MusicService
 import com.metrolist.music.playback.MusicService.MusicBinder
 import com.metrolist.music.playback.PlayerConnection
 import com.metrolist.music.ui.WearApp
-import com.metrolist.music.wear.OffBodyMonitor
 import com.metrolist.music.utils.SyncUtils
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.setAppLocale
@@ -71,11 +69,12 @@ class WearMainActivity : ComponentActivity() {
     private var playerConnection: PlayerConnection? = null
     private var playerConnectionSnapshot by mutableStateOf<PlayerConnection?>(null)
     private var isServiceBound = false
-    private var offBodyMonitor: OffBodyMonitor? = null
 
     private val quitReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == MusicService.ACTION_QUIT) {
+                safeUnbindService()
+                stopService(Intent(this@WearMainActivity, MusicService::class.java))
                 finish()
             }
         }
@@ -114,26 +113,6 @@ class WearMainActivity : ComponentActivity() {
                 .collectLatest { appLanguage ->
                     val locale = appLanguage.takeUnless { it == SYSTEM_DEFAULT }?.let { Locale.forLanguageTag(it) } ?: Locale.getDefault()
                     setAppLocale(this@WearMainActivity, locale)
-                }
-        }
-
-        lifecycleScope.launch {
-            dataStore.data
-                .map { it[OffBodyAppCloseKey] ?: false }
-                .distinctUntilChanged()
-                .collectLatest { enabled ->
-                    if (enabled) {
-                        if (offBodyMonitor == null) {
-                            offBodyMonitor = OffBodyMonitor(this@WearMainActivity, lifecycleScope) {
-                                Timber.d("OffBodyMonitor: Timeout reached, quitting app")
-                                sendBroadcast(Intent(MusicService.ACTION_QUIT).setPackage(packageName))
-                            }
-                        }
-                        offBodyMonitor?.startMonitoring()
-                    } else {
-                        offBodyMonitor?.stopMonitoring()
-                        offBodyMonitor = null
-                    }
                 }
         }
 
@@ -207,9 +186,6 @@ class WearMainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        offBodyMonitor?.stopMonitoring()
-        offBodyMonitor = null
-
         if (isFinishing) {
             listenTogetherManager.disconnect()
         }

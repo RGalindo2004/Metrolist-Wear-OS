@@ -12,12 +12,20 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
 import android.widget.Toast
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.io.InputStream
+import java.net.Socket
+import java.util.zip.ZipInputStream
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -38,6 +46,13 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import com.metrolist.music.constants.SleepTimerDefaultKey
+import com.metrolist.music.constants.SleepTimerEnabledKey
+import com.metrolist.music.constants.SleepTimerEndTimeKey
+import com.metrolist.music.constants.SleepTimerFadeOutKey
+import com.metrolist.music.constants.SleepTimerRepeatKey
+import com.metrolist.music.constants.SleepTimerStartTimeKey
+import com.metrolist.music.constants.SleepTimerStopAfterCurrentSongKey
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,21 +91,19 @@ import com.metrolist.music.LocalSyncUtils
 import com.metrolist.music.WearApp
 import com.metrolist.music.constants.*
 import com.metrolist.music.core.R
-import com.metrolist.music.discord.DiscordAuth
-import com.metrolist.music.discord.DiscordDefaults
-import com.metrolist.music.discord.DiscordRpcManager
-import com.metrolist.music.discord.DiscordTokenStore
 import com.metrolist.music.db.entities.EventWithSong
 import com.metrolist.music.db.entities.Playlist
 import com.metrolist.music.db.entities.PlaylistSong
 import com.metrolist.music.db.entities.Song
 import com.metrolist.music.db.entities.Album
 import com.metrolist.music.extensions.toMediaItem
+import com.metrolist.music.extensions.tryOrNull
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.queues.YouTubeAlbumRadio
 import com.metrolist.music.playback.queues.YouTubeQueue
+import com.metrolist.music.utils.ArtistNameAliases
 import com.metrolist.music.utils.GoogleDeviceAuth
 import com.metrolist.music.utils.OTAUpdater
 import com.metrolist.music.utils.LoginHelper
@@ -285,6 +298,10 @@ fun WearHomeSectionScreen(
 @Composable
 private fun AlbumChip(album: Album, onClick: () -> Unit) {
     val playerConnection = LocalPlayerConnection.current
+    val title = album.album.title
+    val artistsText = remember(album.artists) { album.artists.joinToString { it.name } }
+    val resizedThumbnail = remember(album.album.thumbnailUrl) { album.album.thumbnailUrl?.resize(100, 100) }
+
     Chip(
         onClick = {
             album.album.playlistId?.let {
@@ -292,11 +309,11 @@ private fun AlbumChip(album: Album, onClick: () -> Unit) {
             }
             onClick()
         },
-        label = { Text(album.album.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        secondaryLabel = { Text(album.artists.joinToString { it.name }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        label = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        secondaryLabel = { Text(artistsText, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         icon = {
             AsyncImage(
-                model = album.album.thumbnailUrl?.resize(100, 100),
+                model = resizedThumbnail,
                 contentDescription = null,
                 modifier = Modifier.size(ChipDefaults.IconSize).clip(RoundedCornerShape(4.dp)),
                 contentScale = ContentScale.Crop
@@ -311,6 +328,18 @@ private fun YTItemChip(item: YTItem, onClick: () -> Unit) {
     val playerConnection = LocalPlayerConnection.current
     val menuState = LocalWearSongMenuState.current
     
+    val isSong = item is SongItem
+    val title = item.title
+    val artistText = remember(item) {
+        when (item) {
+            is SongItem -> item.artists.joinToString { it.name }
+            is AlbumItem -> item.artists?.joinToString { it.name } ?: ""
+            is com.metrolist.innertube.models.PlaylistItem -> item.author?.name ?: ""
+            else -> ""
+        }
+    }
+    val resizedThumbnail = remember(item.thumbnail) { item.thumbnail?.resize(100, 100) }
+
     Chip(
         onClick = {
             when (item) {
@@ -321,40 +350,64 @@ private fun YTItemChip(item: YTItem, onClick: () -> Unit) {
             }
             onClick()
         },
-        label = { Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        icon = {
-            Box(
-                modifier = Modifier
-                    .size(ChipDefaults.IconSize)
-                    .clip(CircleShape)
+        label = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                AsyncImage(
-                    model = item.thumbnail?.resize(100, 100),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    alpha = 0.5f
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .combinedClickable(
-                            onClick = {
-                                if (item is SongItem) {
-                                    menuState.show(item.toMediaMetadata())
-                                }
-                            }
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.more_vert),
-                        contentDescription = "Menu",
-                        modifier = Modifier.size(16.dp),
-                        tint = androidx.compose.ui.graphics.Color.White
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.button,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
+                    if (artistText.isNotEmpty()) {
+                        Text(
+                            text = artistText,
+                            style = MaterialTheme.typography.caption2,
+                            color = MaterialTheme.colors.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                if (isSong) {
+                    Spacer(Modifier.width(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = {
+                                    if (item is SongItem) {
+                                        menuState.show(item.toMediaMetadata())
+                                    }
+                                }
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.more_vert),
+                            contentDescription = "Menu",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colors.onSurface
+                        )
+                    }
                 }
             }
+        },
+        icon = {
+            AsyncImage(
+                model = resizedThumbnail,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(ChipDefaults.IconSize)
+                    .clip(if (isSong) CircleShape else RoundedCornerShape(4.dp)),
+                contentScale = ContentScale.Crop
+            )
         },
         modifier = Modifier.fillMaxWidth()
     )
@@ -601,7 +654,7 @@ fun WearSearchScreen(
                                         style = MaterialTheme.typography.caption2,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
-                                        color = MaterialTheme.colors.secondary
+                                        color = LocalContentColor.current.copy(alpha = 0.8f)
                                     )
                                 }
                             }
@@ -639,12 +692,134 @@ fun WearSearchScreen(
 }
 
 
-private enum class LoginMode { None, Token }
+private enum class LoginMode { None, Token, BackupRestore }
+
+private const val SETTINGS_FILENAME = "settings.preferences_pb"
+
+private fun readHttpHeaders(inputStream: InputStream): Pair<String, Map<String, String>> {
+    val headerBytesList = mutableListOf<Byte>()
+    val buffer = ByteArray(1)
+    var count = 0
+
+    while (true) {
+        val read = inputStream.read(buffer)
+        if (read == -1) break
+        val b = buffer[0]
+        headerBytesList.add(b)
+
+        if (count >= 3) {
+            val size = headerBytesList.size
+            if (size >= 4 &&
+                headerBytesList[size - 4] == '\r'.code.toByte() &&
+                headerBytesList[size - 3] == '\n'.code.toByte() &&
+                headerBytesList[size - 2] == '\r'.code.toByte() &&
+                headerBytesList[size - 1] == '\n'.code.toByte()) {
+                break
+            }
+            if (size >= 2 &&
+                headerBytesList[size - 2] == '\n'.code.toByte() &&
+                headerBytesList[size - 1] == '\n'.code.toByte()) {
+                break
+            }
+        }
+        count++
+    }
+
+    val headerString = headerBytesList.toByteArray().toString(Charsets.ISO_8859_1)
+    val lines = headerString.split("\r\n", "\n")
+    val firstLine = lines.firstOrNull() ?: ""
+    val headers = mutableMapOf<String, String>()
+    for (i in 1 until lines.size) {
+        val l = lines[i]
+        if (l.contains(":")) {
+            val key = l.substringBefore(":").trim()
+            val value = l.substringAfter(":").trim()
+            headers[key] = value
+        }
+    }
+    return Pair(firstLine, headers)
+}
+
+private fun findSubarray(source: ByteArray, target: ByteArray, startIndex: Int = 0): Int {
+    if (target.isEmpty()) return -1
+    for (i in startIndex..source.size - target.size) {
+        var found = true
+        for (j in target.indices) {
+            if (source[i + j] != target[j]) {
+                found = false
+                break
+            }
+        }
+        if (found) return i
+    }
+    return -1
+}
+
+private fun parseMultipartFileBytes(inputStream: InputStream, contentLength: Long, contentType: String): ByteArray? {
+    val boundaryParam = contentType.split(";").find { it.trim().startsWith("boundary=") } ?: return null
+    val boundary = boundaryParam.substringAfter("boundary=").trim().removeSurrounding("\"")
+    val boundaryBytes = "--$boundary".toByteArray(Charsets.ISO_8859_1)
+
+    val bodyBytes = if (contentLength > 0 && contentLength < 50 * 1024 * 1024) {
+        val buffer = ByteArray(contentLength.toInt())
+        var offset = 0
+        while (offset < contentLength) {
+            val read = inputStream.read(buffer, offset, (contentLength - offset).toInt())
+            if (read == -1) break
+            offset += read
+        }
+        buffer
+    } else {
+        inputStream.readBytes()
+    }
+
+    var index = 0
+    while (true) {
+        val boundaryIndex = findSubarray(bodyBytes, boundaryBytes, index)
+        if (boundaryIndex == -1) break
+        val partStart = boundaryIndex + boundaryBytes.size
+        var headerStart = partStart
+        if (headerStart < bodyBytes.size && bodyBytes[headerStart] == '\r'.code.toByte()) headerStart++
+        if (headerStart < bodyBytes.size && bodyBytes[headerStart] == '\n'.code.toByte()) headerStart++
+
+        val nextBoundaryIndex = findSubarray(bodyBytes, boundaryBytes, partStart)
+        if (nextBoundaryIndex == -1) break
+
+        val headersEnd1 = findSubarray(bodyBytes, "\r\n\r\n".toByteArray(Charsets.ISO_8859_1), headerStart)
+        val headersEnd2 = findSubarray(bodyBytes, "\n\n".toByteArray(Charsets.ISO_8859_1), headerStart)
+        
+        val headersEnd = when {
+            headersEnd1 != -1 && headersEnd2 != -1 -> minOf(headersEnd1, headersEnd2)
+            headersEnd1 != -1 -> headersEnd1
+            else -> headersEnd2
+        }
+
+        if (headersEnd != -1 && headersEnd < nextBoundaryIndex) {
+            val headersBytes = bodyBytes.copyOfRange(headerStart, headersEnd)
+            val headersStr = headersBytes.toString(Charsets.ISO_8859_1)
+            if (headersStr.contains("name=\"backup\"") || headersStr.contains("name='backup'")) {
+                val contentStart = headersEnd + if (headersEnd == headersEnd1) 4 else 2
+                var contentEnd = nextBoundaryIndex
+                if (contentEnd >= 2 && bodyBytes[contentEnd - 2] == '\r'.code.toByte() && bodyBytes[contentEnd - 1] == '\n'.code.toByte()) {
+                    contentEnd -= 2
+                } else if (contentEnd >= 1 && bodyBytes[contentEnd - 1] == '\n'.code.toByte()) {
+                    contentEnd -= 1
+                }
+                if (contentStart < contentEnd) {
+                    return bodyBytes.copyOfRange(contentStart, contentEnd)
+                }
+            }
+        }
+        index = nextBoundaryIndex
+    }
+    return null
+}
 
 @OptIn(ExperimentalHorologistApi::class)
 @Composable
 fun WearLoginScreen() {
     val context = LocalContext.current
+    val database = LocalDatabase.current
     val coroutineScope = rememberCoroutineScope()
     val columnState = rememberResponsiveColumnState()
     val focusRequester = remember { FocusRequester() }
@@ -678,7 +853,7 @@ fun WearLoginScreen() {
     
     // Local Server Flow
     DisposableEffect(loginMode) {
-        if (loginMode != LoginMode.Token) return@DisposableEffect onDispose {}
+        if (loginMode == LoginMode.None) return@DisposableEffect onDispose {}
         var ip = getLocalIpAddress()
         var serverSocket: ServerSocket? = null
         val thread = thread {
@@ -691,69 +866,205 @@ fun WearLoginScreen() {
                 } else { statusMessage = errorNoWifiIp }
                 while (!Thread.currentThread().isInterrupted) {
                     val client = try { serverSocket?.accept() } catch (e: Exception) { null } ?: break
-                    val reader = client.getInputStream().bufferedReader()
-                    val firstLine = reader.readLine() ?: continue
-                    if (firstLine.startsWith("GET")) {
-                        val path = firstLine.substringAfter(" ").substringBefore(" ")
-                        val query = if (path.contains("?")) path.substringAfter("?") else ""
-                        val params = query.split("&").associate { it.substringBefore("=") to it.substringAfter("=") }
-                        
-                        if (params.containsKey("cookie")) {
-                            val cookie = java.net.URLDecoder.decode(params["cookie"], "UTF-8")
-                            coroutineScope.launch {
-                                isLoading = true
-                                statusMessage = "Iniciando sesión..."
-                                
-                                runCatching {
-                                    YouTube.cookie = cookie
-                                    val accountInfo = YouTube.accountInfo().getOrThrow()
-                                    
-                                    context.safeDataStoreEdit { settings ->
-                                        settings[InnerTubeCookieKey] = cookie
-                                        settings[AccountNameKey] = accountInfo.name
-                                        settings[AccountEmailKey] = accountInfo.email.orEmpty()
-                                        settings[AccountPhotoKey] = accountInfo.thumbnailUrl.orEmpty()
+                    try {
+                        val inputStream = client.getInputStream()
+                        val (firstLine, headers) = readHttpHeaders(inputStream)
+                        if (firstLine.isEmpty()) {
+                            client.close()
+                            continue
+                        }
+
+                        val contentLength = headers["Content-Length"]?.toLongOrNull() ?: 0L
+                        val contentType = headers["Content-Type"] ?: ""
+
+                        if (firstLine.startsWith("POST") && firstLine.contains("/upload")) {
+                            val backupBytes = parseMultipartFileBytes(inputStream, contentLength, contentType)
+                            if (backupBytes != null && backupBytes.isNotEmpty()) {
+                                coroutineScope.launch {
+                                    isLoading = true
+                                    statusMessage = "Restaurando resguardo..."
+                                    runCatching {
+                                        val tempBackupFile = File(context.cacheDir, "temp_restore.backup")
+                                        tempBackupFile.writeBytes(backupBytes)
+
+                                        var foundDb = false
+                                        var foundSettings = false
+                                        var restoredArtistNameAliases: Map<String, String>? = null
+
+                                        val tempSettings = File(context.filesDir, "datastore/$SETTINGS_FILENAME.restore")
+                                        tempSettings.delete()
+
+                                        val restoreDbName = "restored_song.db"
+                                        val restoreDbPath = context.getDatabasePath(restoreDbName).absolutePath
+                                        File(restoreDbPath).delete()
+
+                                        ZipInputStream(FileInputStream(tempBackupFile)).use { zipIn ->
+                                            var entry = tryOrNull { zipIn.nextEntry }
+                                            while (entry != null) {
+                                                when (entry.name) {
+                                                    SETTINGS_FILENAME -> {
+                                                        foundSettings = true
+                                                        tempSettings.outputStream().use { zipIn.copyTo(it) }
+                                                    }
+                                                    ArtistNameAliases.BACKUP_FILENAME -> {
+                                                        restoredArtistNameAliases = ArtistNameAliases.deserialize(zipIn.readBytes().decodeToString())
+                                                    }
+                                                    "song.db" -> {
+                                                        foundDb = true
+                                                        FileOutputStream(restoreDbPath).use { zipIn.copyTo(it) }
+                                                    }
+                                                }
+                                                entry = tryOrNull { zipIn.nextEntry }
+                                            }
+                                        }
+
+                                        if (foundDb || foundSettings) {
+                                            database.close()
+                                            if (foundDb) {
+                                                val currentDbPath = context.getDatabasePath("song.db").absolutePath
+                                                val currentFile = File(currentDbPath)
+                                                val stagedFile = File("$currentDbPath.restore_staged")
+                                                val backupFile = File("$currentDbPath.restore_backup")
+
+                                                stagedFile.delete()
+                                                backupFile.delete()
+                                                File(restoreDbPath).copyTo(stagedFile, overwrite = true)
+                                                currentFile.renameTo(backupFile)
+                                                stagedFile.renameTo(currentFile)
+                                                backupFile.delete()
+                                                File("$currentDbPath-wal").delete()
+                                                File("$currentDbPath-shm").delete()
+                                            }
+                                            if (foundSettings) {
+                                                val actualSettings = File(context.filesDir, "datastore/$SETTINGS_FILENAME")
+                                                tempSettings.copyTo(actualSettings, overwrite = true)
+                                                tempSettings.delete()
+                                            }
+                                            ArtistNameAliases.restore(context, restoredArtistNameAliases.orEmpty())
+
+                                            statusMessage = "¡Restaurado con éxito! Reiniciando..."
+                                            delay(2000)
+                                            if (context is Activity) {
+                                                val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                                                intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                                                context.startActivity(intent)
+                                                Runtime.getRuntime().exit(0)
+                                            }
+                                        } else {
+                                            throw Exception("Archivo de resguardo inválido o vacío")
+                                        }
+                                    }.onFailure { e ->
+                                        isLoading = false
+                                        statusMessage = "Error al restaurar: ${e.message}"
                                     }
+                                }
+
+                                val response = """
+                                    <html>
+                                    <head>
+                                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                        <style>
+                                            body { font-family: sans-serif; padding: 20px; background: #121212; color: white; text-align: center; }
+                                            h1 { color: #4CAF50; }
+                                            p { color: #aaa; }
+                                        </style>
+                                    </head>
+                                    <body>
+                                        <h1>¡Resguardo Recibido!</h1>
+                                        <p>El reloj está restaurando tus datos y configuraciones (incluyendo Discord). Se reiniciará en breve.</p>
+                                    </body>
+                                    </html>
+                                """.trimIndent()
+                                client.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n$response".toByteArray())
+                                client.close()
+                                continue
+                            } else {
+                                val response = """
+                                    <html>
+                                    <head><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>body{font-family:sans-serif;padding:20px;background:#121212;color:white;text-align:center;}h1{color:#F44336;}</style></head>
+                                    <body><h1>Error</h1><p>No se pudo procesar el archivo de resguardo.</p></body>
+                                    </html>
+                                """.trimIndent()
+                                client.getOutputStream().write("HTTP/1.1 400 Bad Request\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n$response".toByteArray())
+                                client.close()
+                                continue
+                            }
+                        } else if (firstLine.startsWith("GET")) {
+                            val path = firstLine.substringAfter(" ").substringBefore(" ")
+                            val query = if (path.contains("?")) path.substringAfter("?") else ""
+                            val params = query.split("&").associate { it.substringBefore("=") to it.substringAfter("=") }
+                            
+                            if (params.containsKey("cookie")) {
+                                val cookie = java.net.URLDecoder.decode(params["cookie"], "UTF-8")
+                                coroutineScope.launch {
+                                    isLoading = true
+                                    statusMessage = "Iniciando sesión..."
                                     
-                                    statusMessage = "¡Éxito! Reiniciando..."
-                                    delay(2000)
-                                    if (context is Activity) {
-                                        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
-                                        intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-                                        context.startActivity(intent)
-                                        Runtime.getRuntime().exit(0)
+                                    runCatching {
+                                        YouTube.cookie = cookie
+                                        val accountInfo = YouTube.accountInfo().getOrThrow()
+                                        
+                                        context.safeDataStoreEdit { settings ->
+                                            settings[InnerTubeCookieKey] = cookie
+                                            settings[AccountNameKey] = accountInfo.name
+                                            settings[AccountEmailKey] = accountInfo.email.orEmpty()
+                                            settings[AccountPhotoKey] = accountInfo.thumbnailUrl.orEmpty()
+                                        }
+                                        
+                                        statusMessage = "¡Éxito! Reiniciando..."
+                                        delay(2000)
+                                        if (context is Activity) {
+                                            val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                                            intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                                            context.startActivity(intent)
+                                            Runtime.getRuntime().exit(0)
+                                        }
+                                    }.onFailure { e ->
+                                        isLoading = false
+                                        statusMessage = "Error: ${e.message}"
                                     }
-                                }.onFailure { e ->
-                                    isLoading = false
-                                    statusMessage = "Error: ${e.message}"
                                 }
                             }
+                            
+                            val response = """
+                                <html>
+                                <head>
+                                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                    <style>
+                                        body { font-family: sans-serif; padding: 20px; background: #121212; color: white; text-align: center; }
+                                        textarea, input[type="file"] { width: 100%; margin: 10px 0; background: #222; color: white; border: 1px solid #444; border-radius: 8px; padding: 10px; font-size: 14px; box-sizing: border-box; }
+                                        button { background: #BB86FC; color: black; border: none; padding: 12px 24px; border-radius: 20px; font-weight: bold; cursor: pointer; font-size: 16px; width: 100%; margin-top: 10px; }
+                                        h1 { color: #BB86FC; margin-bottom: 20px; }
+                                        p { color: #aaa; margin-bottom: 10px; }
+                                        .section { background: #1e1e1e; padding: 15px; border-radius: 12px; margin-bottom: 20px; text-align: left; }
+                                    </style>
+                                </head>
+                                <body>
+                                    <h1>Metrolist Watch Setup</h1>
+                                    
+                                    <div class="section">
+                                        <p><b>Opción 1: Subir archivo de Resguardo (.backup)</b><br><small style="color:#888;">Recupera Discord, configuraciones y cuenta</small></p>
+                                        <form action="/upload" method="POST" enctype="multipart/form-data">
+                                            <input type="file" name="backup" accept=".backup,.zip">
+                                            <button type="submit">RESTAURAR BACKUP</button>
+                                        </form>
+                                    </div>
+
+                                    <div class="section">
+                                        <p><b>Opción 2: Pegar Cookie de InnerTube</b></p>
+                                        <form action="/" method="GET">
+                                            <textarea name="cookie" placeholder="Ej: VISITOR_INFO1_LIVE=...; SID=..."></textarea>
+                                            <button type="submit">INICIAR SESIÓN CON COOKIE</button>
+                                        </form>
+                                    </div>
+                                </body>
+                                </html>
+                            """.trimIndent()
+                            client.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n$response".toByteArray())
+                            client.close()
                         }
-                        
-                        val response = """
-                            <html>
-                            <head>
-                                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                                <style>
-                                    body { font-family: sans-serif; padding: 20px; background: #121212; color: white; text-align: center; }
-                                    textarea { width: 100%; height: 120px; margin: 10px 0; background: #222; color: white; border: 1px solid #444; border-radius: 8px; padding: 10px; font-size: 14px; }
-                                    button { background: #BB86FC; color: black; border: none; padding: 12px 24px; border-radius: 20px; font-weight: bold; cursor: pointer; font-size: 16px; width: 100%; }
-                                    h1 { color: #BB86FC; margin-bottom: 20px; }
-                                    p { color: #aaa; margin-bottom: 20px; }
-                                </style>
-                            </head>
-                            <body>
-                                <h1>Metrolist Login</h1>
-                                <p>Copia y pega tu cookie de InnerTube aquí:</p>
-                                <form action="/" method="GET">
-                                    <textarea name="cookie" placeholder="Ej: VISITOR_INFO1_LIVE=...; SID=..."></textarea>
-                                    <br>
-                                    <button type="submit">INICIAR SESIÓN EN EL RELOJ</button>
-                                </form>
-                            </body>
-                            </html>
-                        """.trimIndent()
-                        client.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n$response".toByteArray())
+                    } catch (e: Exception) {
+                        Timber.e(e, "Client request error")
                         client.close()
                     }
                 }
@@ -804,11 +1115,19 @@ fun WearLoginScreen() {
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
+                    item {
+                        Chip(
+                            onClick = { loginMode = LoginMode.BackupRestore },
+                            label = { Text("Restaurar Backup (.backup)") },
+                            icon = { Icon(painterResource(R.drawable.backup), null) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
-                LoginMode.Token -> {
+                LoginMode.Token, LoginMode.BackupRestore -> {
                     item {
                         Text(
-                            text = if (serverUrl != null) "Abre este enlace en tu celular:" else "Iniciando servidor...",
+                            text = if (serverUrl != null) (if (loginMode == LoginMode.BackupRestore) "Abre este enlace para restaurar tu backup:" else "Abre este enlace en tu celular:") else "Iniciando servidor...",
                             style = MaterialTheme.typography.caption2,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.padding(top = 16.dp, start = 16.dp, end = 16.dp)
@@ -1787,29 +2106,42 @@ fun WearSongChip(
     artists: String,
     thumbnailUrl: String?,
     onClick: () -> Unit,
-    onMenuClick: () -> Unit
+    onMenuClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
+    val resizedThumbnail = remember(thumbnailUrl) { thumbnailUrl?.resize(100, 100) }
     Chip(
         onClick = onClick,
-        label = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        secondaryLabel = { Text(artists, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        icon = {
-            Box(
-                modifier = Modifier
-                    .size(ChipDefaults.IconSize)
-                    .clip(CircleShape)
+        label = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                AsyncImage(
-                    model = thumbnailUrl?.resize(100, 100),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    alpha = 0.5f
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.button,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (artists.isNotEmpty()) {
+                        Text(
+                            text = artists,
+                            style = MaterialTheme.typography.caption2,
+                            color = LocalContentColor.current.copy(alpha = 0.8f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                Spacer(Modifier.width(4.dp))
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .combinedClickable(
+                        .size(24.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
                             onClick = onMenuClick
                         ),
                     contentAlignment = Alignment.Center
@@ -1818,12 +2150,22 @@ fun WearSongChip(
                         painter = painterResource(R.drawable.more_vert),
                         contentDescription = "Menu",
                         modifier = Modifier.size(16.dp),
-                        tint = androidx.compose.ui.graphics.Color.White
+                        tint = LocalContentColor.current
                     )
                 }
             }
         },
-        modifier = Modifier.fillMaxWidth()
+        icon = {
+            AsyncImage(
+                model = resizedThumbnail,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(ChipDefaults.IconSize)
+                    .clip(CircleShape),
+                contentScale = ContentScale.Crop
+            )
+        },
+        modifier = modifier.fillMaxWidth()
     )
 }
 
@@ -1833,7 +2175,8 @@ fun WearSettingsScreen(
     onNavigateToLogin: () -> Unit = {},
     onNavigateToLanguage: () -> Unit = {},
     onNavigateToContentLanguage: () -> Unit = {},
-    onNavigateToContentCountry: () -> Unit = {}
+    onNavigateToContentCountry: () -> Unit = {},
+    onNavigateToSleepTimer: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -1846,19 +2189,17 @@ fun WearSettingsScreen(
     var audioNormalization by rememberPreference(key = AudioNormalizationKey, defaultValue = true)
     var skipSilence by rememberPreference(key = SkipSilenceKey, defaultValue = false)
     var stopMusicOnTaskClear by rememberPreference(key = StopMusicOnTaskClearKey, defaultValue = true)
-    var offBodyAppClose by rememberPreference(key = OffBodyAppCloseKey, defaultValue = false)
     var batterySaverMode by rememberPreference(key = BatterySaverModeKey, defaultValue = false)
-    var discordRPCEnabled by rememberPreference(key = EnableDiscordRPCKey, defaultValue = true)
     
     var crossfadeDuration by rememberPreference(key = CrossfadeDurationKey, defaultValue = 5f)
     var crossfadeGapless by rememberPreference(key = CrossfadeGaplessKey, defaultValue = true)
     var showCrossfadeDurationDialog by remember { mutableStateOf(false) }
+
+    val sleepTimerEnabled by rememberPreference(key = SleepTimerEnabledKey, defaultValue = false)
+
     val appLanguage by rememberPreference(key = AppLanguageKey, defaultValue = SYSTEM_DEFAULT)
     val contentLanguage by rememberPreference(key = ContentLanguageKey, defaultValue = SYSTEM_DEFAULT)
     val contentCountry by rememberPreference(key = ContentCountryKey, defaultValue = SYSTEM_DEFAULT)
-
-    val discordStatus by DiscordRpcManager.connectionStatus.collectAsStateWithLifecycle()
-    val discordUser by DiscordRpcManager.currentUser.collectAsStateWithLifecycle()
 
     val accountName by remember(context) {
         context.dataStore.data.map { it[AccountNameKey] ?: it[AccountEmailKey] }
@@ -1867,14 +2208,6 @@ fun WearSettingsScreen(
     val accountPhoto by remember(context) {
         context.dataStore.data.map { it[AccountPhotoKey] }
     }.collectAsStateWithLifecycle(initialValue = null)
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (!isGranted) {
-            offBodyAppClose = false
-        }
-    }
 
     ScalingLazyColumn(
         columnState = columnState,
@@ -1940,6 +2273,15 @@ fun WearSettingsScreen(
 
         item { ListHeader { Text(stringResource(R.string.playback), style = MaterialTheme.typography.caption2) } }
         item {
+            Chip(
+                onClick = onNavigateToSleepTimer,
+                label = { Text(stringResource(R.string.sleep_timer)) },
+                secondaryLabel = { Text(if (sleepTimerEnabled) "Activado" else "Desactivado") },
+                icon = { Icon(painterResource(R.drawable.timer), null) },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        item {
             ToggleChip(
                 checked = audioNormalization,
                 onCheckedChange = { audioNormalization = it },
@@ -2001,29 +2343,8 @@ fun WearSettingsScreen(
             ToggleChip(
                 checked = hideVideoSongs,
                 onCheckedChange = { hideVideoSongs = it },
-                label = { Text("Hide video songs") },
+                label = { Text("Ocultar canciones en vídeo") },
                 toggleControl = { Checkbox(checked = hideVideoSongs) },
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-
-        item { ListHeader { Text(stringResource(R.string.privacy), style = MaterialTheme.typography.caption2) } }
-        item {
-            ToggleChip(
-                checked = offBodyAppClose,
-                onCheckedChange = {
-                    if (it) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            permissionLauncher.launch(android.Manifest.permission.BODY_SENSORS)
-                        } else {
-                            offBodyAppClose = true
-                        }
-                    } else {
-                        offBodyAppClose = false
-                    }
-                },
-                label = { Text("Off-body app close") },
-                toggleControl = { Checkbox(checked = offBodyAppClose) },
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -2033,7 +2354,7 @@ fun WearSettingsScreen(
             ToggleChip(
                 checked = batterySaverMode,
                 onCheckedChange = { batterySaverMode = it },
-                label = { Text("Battery saver mode") },
+                label = { Text("Modo de ahorro de batería") },
                 toggleControl = { Checkbox(checked = batterySaverMode) },
                 modifier = Modifier.fillMaxWidth()
             )
@@ -2044,85 +2365,6 @@ fun WearSettingsScreen(
                 onCheckedChange = { stopMusicOnTaskClear = it },
                 label = { Text(stringResource(R.string.stop_music_on_task_clear)) },
                 toggleControl = { Checkbox(checked = stopMusicOnTaskClear) },
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-
-        item { ListHeader { Text(stringResource(R.string.discord_integration), style = MaterialTheme.typography.caption2) } }
-        
-        item {
-            ToggleChip(
-                checked = discordRPCEnabled,
-                onCheckedChange = { 
-                    discordRPCEnabled = it
-                    DiscordRpcManager.notifySettingsChanged()
-                },
-                label = { Text(stringResource(R.string.enable_discord_rpc)) },
-                toggleControl = { Checkbox(checked = discordRPCEnabled) },
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-
-        item {
-            val remoteActivityHelper = remember { RemoteActivityHelper(context) }
-            Chip(
-                onClick = {
-                    if (DiscordRpcManager.isAuthorized()) {
-                        DiscordRpcManager.logout()
-                    } else {
-                        coroutineScope.launch {
-                            val pkce = DiscordAuth.generatePkcePair()
-                            val state = "wear_auth_${System.currentTimeMillis()}"
-
-                            try {
-                                val nodes = Wearable.getNodeClient(context).connectedNodes.await()
-                                if (nodes.isEmpty()) {
-                                    Toast.makeText(context, R.string.phone_not_connected, Toast.LENGTH_LONG).show()
-                                    return@launch
-                                }
-
-                                val authUrl = DiscordDefaults.DISCORD_OAUTH_AUTHORIZE +
-                                    "?client_id=${com.metrolist.music.core.BuildConfig.DISCORD_APP_ID}" +
-                                    "&response_type=code" +
-                                    "&redirect_uri=${java.net.URLEncoder.encode(DiscordAuth.REDIRECT_URI, "UTF-8")}" +
-                                    "&scope=${java.net.URLEncoder.encode(DiscordDefaults.DISCORD_SCOPES, "UTF-8")}" +
-                                    "&state=$state" +
-                                    "&code_challenge_method=S256" +
-                                    "&code_challenge=${pkce.challenge}"
-
-                                remoteActivityHelper.startRemoteActivity(
-                                    Intent(Intent.ACTION_VIEW).apply {
-                                        data = authUrl.toUri()
-                                        addCategory(Intent.CATEGORY_BROWSABLE)
-                                    }
-                                ).await()
-                                Toast.makeText(context, "Revisa tu celular para iniciar sesión", Toast.LENGTH_SHORT).show()
-                            } catch (e: Exception) {
-                                Timber.e(e, "Failed to launch remote Discord auth")
-                                Toast.makeText(context, "Error al abrir en el celular", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    }
-                },
-                label = { 
-                    Text(
-                        discordUser?.username ?: discordUser?.name ?: stringResource(
-                            if (DiscordRpcManager.isAuthorized()) R.string.discord_status_authorized else R.string.not_logged_in
-                        )
-                    )
-                },
-                secondaryLabel = {
-                    Text(
-                        when {
-                            discordStatus == DiscordRpcManager.Status.Connected -> stringResource(R.string.discord_status_online)
-                            DiscordRpcManager.isAuthorized() -> stringResource(R.string.action_logout)
-                            else -> "Tap to Login on Phone"
-                        }
-                    )
-                },
-                icon = {
-                    Icon(painterResource(R.drawable.discord), contentDescription = null)
-                },
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -2181,9 +2423,244 @@ fun WearSettingsScreen(
             }
         }
     }
+}
+
+@OptIn(ExperimentalHorologistApi::class, ExperimentalWearMaterialApi::class)
+@Composable
+fun WearSleepTimerSettingsScreen() {
+    val columnState = rememberResponsiveColumnState()
+    val focusRequester = remember { FocusRequester() }
+
+    var sleepTimerEnabled by rememberPreference(key = SleepTimerEnabledKey, defaultValue = false)
+    var sleepTimerDefault by rememberPreference(key = SleepTimerDefaultKey, defaultValue = 30f)
+    var sleepTimerStartTime by rememberPreference(key = SleepTimerStartTimeKey, defaultValue = "22:00")
+    var sleepTimerEndTime by rememberPreference(key = SleepTimerEndTimeKey, defaultValue = "06:00")
+    var sleepTimerRepeat by rememberPreference(key = SleepTimerRepeatKey, defaultValue = "daily")
+    var sleepTimerStopAfterCurrentSong by rememberPreference(key = SleepTimerStopAfterCurrentSongKey, defaultValue = false)
+    var sleepTimerFadeOut by rememberPreference(key = SleepTimerFadeOutKey, defaultValue = false)
+
+    var showSleepTimerDurationDialog by remember { mutableStateOf(false) }
+    var showStartTimeDialog by remember { mutableStateOf(false) }
+    var showEndTimeDialog by remember { mutableStateOf(false) }
+    var showRepeatDialog by remember { mutableStateOf(false) }
+
+    val repeatModesMap = mapOf(
+        "daily" to stringResource(R.string.sleep_timer_daily),
+        "weekdays" to stringResource(R.string.sleep_timer_weekdays),
+        "weekends" to stringResource(R.string.sleep_timer_weekends),
+        "weekdays_weekends" to stringResource(R.string.sleep_timer_weekdays_weekends)
+    )
+
+    ScalingLazyColumn(
+        columnState = columnState,
+        modifier = Modifier.fillMaxSize().focusRequester(focusRequester).focusable()
+    ) {
+        item { ListHeader { Text(stringResource(R.string.sleep_timer)) } }
+
+        item {
+            ToggleChip(
+                checked = sleepTimerEnabled,
+                onCheckedChange = { sleepTimerEnabled = it },
+                label = { Text(stringResource(R.string.enable_automatic_sleeptimer)) },
+                toggleControl = { Checkbox(checked = sleepTimerEnabled) },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        if (sleepTimerEnabled) {
+            item {
+                Chip(
+                    onClick = { showRepeatDialog = true },
+                    label = { Text(stringResource(R.string.sleep_timer_repeat)) },
+                    secondaryLabel = { Text(repeatModesMap[sleepTimerRepeat] ?: sleepTimerRepeat) },
+                    icon = { Icon(painterResource(R.drawable.baseline_event_repeat_24), null) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            item {
+                Chip(
+                    onClick = { showStartTimeDialog = true },
+                    label = { Text(stringResource(R.string.sleep_timer_start_time)) },
+                    secondaryLabel = { Text(sleepTimerStartTime) },
+                    icon = { Icon(painterResource(R.drawable.timer), null) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            item {
+                Chip(
+                    onClick = { showEndTimeDialog = true },
+                    label = { Text(stringResource(R.string.sleep_timer_end_time)) },
+                    secondaryLabel = { Text(sleepTimerEndTime) },
+                    icon = { Icon(painterResource(R.drawable.timer), null) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            item {
+                Chip(
+                    onClick = { showSleepTimerDurationDialog = true },
+                    label = { Text(stringResource(R.string.sleep_timer_duration)) },
+                    secondaryLabel = { Text("${sleepTimerDefault.toInt()} min") },
+                    icon = { Icon(painterResource(R.drawable.bedtime), null) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            item {
+                ToggleChip(
+                    checked = sleepTimerStopAfterCurrentSong,
+                    onCheckedChange = { sleepTimerStopAfterCurrentSong = it },
+                    label = { Text(stringResource(R.string.sleep_timer_stop_after_current_song_title)) },
+                    toggleControl = { Checkbox(checked = sleepTimerStopAfterCurrentSong) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            item {
+                ToggleChip(
+                    checked = sleepTimerFadeOut,
+                    onCheckedChange = { sleepTimerFadeOut = it },
+                    label = { Text(stringResource(R.string.sleep_timer_fade_out_title)) },
+                    toggleControl = { Checkbox(checked = sleepTimerFadeOut) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        item { Spacer(Modifier.height(40.dp)) }
+    }
+
+    if (showSleepTimerDurationDialog) {
+        Dialog(
+            showDialog = showSleepTimerDurationDialog,
+            onDismissRequest = { showSleepTimerDurationDialog = false }
+        ) {
+            val dialogColumnState = rememberResponsiveColumnState()
+            ScalingLazyColumn(columnState = dialogColumnState) {
+                item { ListHeader { Text(stringResource(R.string.sleep_timer_duration)) } }
+                items(listOf(5, 10, 15, 30, 45, 60, 90, 120)) { mins ->
+                    Chip(
+                        onClick = {
+                            sleepTimerDefault = mins.toFloat()
+                            showSleepTimerDurationDialog = false
+                        },
+                        label = { Text("$mins min") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+    }
+
+    if (showRepeatDialog) {
+        Dialog(
+            showDialog = showRepeatDialog,
+            onDismissRequest = { showRepeatDialog = false }
+        ) {
+            val dialogColumnState = rememberResponsiveColumnState()
+            ScalingLazyColumn(columnState = dialogColumnState) {
+                item { ListHeader { Text(stringResource(R.string.sleep_timer_repeat)) } }
+                items(repeatModesMap.entries.toList()) { entry ->
+                    SelectableChip(
+                        selected = sleepTimerRepeat == entry.key,
+                        onClick = {
+                            sleepTimerRepeat = entry.key
+                            showRepeatDialog = false
+                        },
+                        label = { Text(entry.value) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+    }
+
+    if (showStartTimeDialog) {
+        WearTimePickerDialog(
+            title = stringResource(R.string.sleep_timer_start_time),
+            initialTime = sleepTimerStartTime,
+            onDismiss = { showStartTimeDialog = false },
+            onConfirm = { time ->
+                sleepTimerStartTime = time
+                showStartTimeDialog = false
+            }
+        )
+    }
+
+    if (showEndTimeDialog) {
+        WearTimePickerDialog(
+            title = stringResource(R.string.sleep_timer_end_time),
+            initialTime = sleepTimerEndTime,
+            onDismiss = { showEndTimeDialog = false },
+            onConfirm = { time ->
+                sleepTimerEndTime = time
+                showEndTimeDialog = false
+            }
+        )
+    }
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
+    }
+}
+
+@OptIn(ExperimentalHorologistApi::class)
+@Composable
+fun WearTimePickerDialog(
+    title: String,
+    initialTime: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    val parts = initialTime.split(":")
+    var selectedHour by remember { mutableIntStateOf(parts.getOrNull(0)?.toIntOrNull() ?: 22) }
+    var selectedMinute by remember { mutableIntStateOf(parts.getOrNull(1)?.toIntOrNull() ?: 0) }
+    var step by remember { mutableIntStateOf(1) } // 1 = Hour, 2 = Minute
+
+    val dialogColumnState = rememberResponsiveColumnState()
+
+    Dialog(
+        showDialog = true,
+        onDismissRequest = onDismiss
+    ) {
+        ScalingLazyColumn(columnState = dialogColumnState) {
+            item {
+                ListHeader {
+                    Text(text = if (step == 1) "$title (Hora)" else "$title (${selectedHour.toString().padStart(2, '0')}:MM)")
+                }
+            }
+            if (step == 1) {
+                items(24) { hour ->
+                    SelectableChip(
+                        selected = selectedHour == hour,
+                        onClick = {
+                            selectedHour = hour
+                            step = 2
+                        },
+                        label = { Text(hour.toString().padStart(2, '0') + ":00") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            } else {
+                items(60) { minute ->
+                    SelectableChip(
+                        selected = selectedMinute == minute,
+                        onClick = {
+                            selectedMinute = minute
+                            val hStr = selectedHour.toString().padStart(2, '0')
+                            val mStr = selectedMinute.toString().padStart(2, '0')
+                            onConfirm("$hStr:$mStr")
+                        },
+                        label = { Text("${selectedHour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item {
+                    Chip(
+                        onClick = { step = 1 },
+                        label = { Text("Cambiar hora") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
     }
 }
 

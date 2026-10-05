@@ -22,3 +22,4 @@ val LocalChangelogState = staticCompositionLocalOf<MutableState<Boolean>> { erro
 val LocalArtistNameAliases = staticCompositionLocalOf<Map<String, String>> { emptyMap() }
 val LocalIsPlayerExpanded = compositionLocalOf { false }
 val LocalBatterySaverMode = compositionLocalOf { false }
+val LocalOffBodyState = compositionLocalOf { false } // true means device is off-body (not on wrist)

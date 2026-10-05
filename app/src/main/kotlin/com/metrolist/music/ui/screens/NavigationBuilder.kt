@@ -57,7 +57,6 @@ import com.metrolist.music.ui.screens.settings.StorageSettings
 import com.metrolist.music.ui.screens.settings.StreamSourcesSettings
 import com.metrolist.music.ui.screens.settings.ThemeScreen
 import com.metrolist.music.ui.screens.settings.UpdaterScreen
-import com.metrolist.music.ui.screens.settings.integrations.DiscordSettings
 import com.metrolist.music.ui.screens.settings.integrations.IntegrationScreen
 import com.metrolist.music.ui.screens.settings.integrations.LastFMSettings
 import com.metrolist.music.ui.screens.settings.integrations.ListenTogetherSettings
@@ -391,10 +390,6 @@ fun NavGraphBuilder.navigationBuilder(
 
     composable("settings/integrations") {
         IntegrationScreen(navController)
-    }
-
-    composable("settings/integrations/discord") {
-        DiscordSettings(navController)
     }
 
     composable("settings/integrations/lastfm") {

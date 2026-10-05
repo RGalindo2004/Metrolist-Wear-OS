@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="local_history">Local</string>
     <string name="remote_history">Remote</string>
     <string name="history_both">Both</string>
@@ -294,6 +294,7 @@
     <string name="sleeptimer_description">Automatically starts the sleep timer at a set time using the default duration</string>
     <string name="sleep_timer_repeat_description">Set a recurring day and time for the sleep timer to activate automatically</string>
     <string name="sleep_timer_repeat">Repeat</string>
+    <string name="sleep_timer_duration">Sleep timer duration</string>
     <string name="sleep_timer_daily">Daily</string>
     <string name="sleep_timer_weekdays">Monday to Friday</string>
     <string name="sleep_timer_weekdays_weekends">Weekdays / Weekends</string>
@@ -1008,4 +1009,6 @@
     <string name="ota_latest_version">Already on the latest version</string>
     <string name="ota_downloading">Downloading update…</string>
     <string name="ota_error">Update failed: %s</string>
+    <string name="requesting_download_from_phone" tools:ignore="MissingTranslation">Requesting download from phone…</string>
+    <string name="wear_update_sent" tools:ignore="MissingTranslation">Update sent to watch</string>
 </resources>

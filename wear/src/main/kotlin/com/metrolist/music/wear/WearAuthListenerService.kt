@@ -5,28 +5,34 @@
 
 package com.metrolist.music.wear
 
-import com.google.android.gms.wearable.DataEvent
+import android.net.Uri
+import android.widget.Toast
+import com.google.android.gms.wearable.ChannelClient
 import com.google.android.gms.wearable.DataEventBuffer
 import com.google.android.gms.wearable.DataMapItem
+import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
+import com.metrolist.innertube.YouTube
+import com.metrolist.music.constants.*
 import com.metrolist.music.constants.AuthSyncConstants.AUTH_SYNC_PATH
+import com.metrolist.music.constants.AuthSyncConstants.WEAR_UPDATE_CHANNEL_PATH
 import com.metrolist.music.constants.AuthSyncConstants.KEY_ACCOUNT_EMAIL
 import com.metrolist.music.constants.AuthSyncConstants.KEY_ACCOUNT_HANDLE
 import com.metrolist.music.constants.AuthSyncConstants.KEY_ACCOUNT_NAME
 import com.metrolist.music.constants.AuthSyncConstants.KEY_AUTH_USER
 import com.metrolist.music.constants.AuthSyncConstants.KEY_COOKIE
 import com.metrolist.music.constants.AuthSyncConstants.KEY_DATA_SYNC_ID
-import com.metrolist.music.constants.AuthSyncConstants.KEY_DISCORD_ACCESS_TOKEN
-import com.metrolist.music.constants.AuthSyncConstants.KEY_DISCORD_EXPIRES_AT
-import com.metrolist.music.constants.AuthSyncConstants.KEY_DISCORD_REFRESH_TOKEN
 import com.metrolist.music.constants.AuthSyncConstants.KEY_VISITOR_DATA
-import com.metrolist.music.discord.DiscordRpcManager
-import com.metrolist.music.discord.DiscordTokenStore
-import com.metrolist.music.utils.LoginHelper
+import com.metrolist.music.core.R
+import com.metrolist.music.utils.OTAUpdater
+import com.metrolist.music.utils.safeDataStoreEdit
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import timber.log.Timber
 
 class WearAuthListenerService : WearableListenerService() {
@@ -34,53 +40,58 @@ class WearAuthListenerService : WearableListenerService() {
 
     override fun onDataChanged(dataEvents: DataEventBuffer) {
         for (event in dataEvents) {
-            if (event.type == DataEvent.TYPE_CHANGED && event.dataItem.uri.path == AUTH_SYNC_PATH) {
+            if (event.dataItem.uri.path == AUTH_SYNC_PATH) {
                 val dataMap = DataMapItem.fromDataItem(event.dataItem).dataMap
-                
                 val cookie = dataMap.getString(KEY_COOKIE)
                 val visitorData = dataMap.getString(KEY_VISITOR_DATA)
                 val dataSyncId = dataMap.getString(KEY_DATA_SYNC_ID)
-                val authUser = dataMap.getString(KEY_AUTH_USER) ?: "0"
-                
-                // Discord tokens
-                val discordAccessToken = dataMap.getString(KEY_DISCORD_ACCESS_TOKEN)
-                val discordRefreshToken = dataMap.getString(KEY_DISCORD_REFRESH_TOKEN)
-                val discordExpiresAt = if (dataMap.containsKey(KEY_DISCORD_EXPIRES_AT)) dataMap.getLong(KEY_DISCORD_EXPIRES_AT) else 0L
+                val authUser = dataMap.getString(KEY_AUTH_USER)
+                val accountName = dataMap.getString(KEY_ACCOUNT_NAME)
+                val accountEmail = dataMap.getString(KEY_ACCOUNT_EMAIL)
+                val accountHandle = dataMap.getString(KEY_ACCOUNT_HANDLE)
 
-                if (discordAccessToken != null) {
-                    Timber.d("WearAuthListenerService: Received Discord tokens, storing...")
+                if (cookie != null) {
+                    YouTube.cookie = cookie
                     scope.launch {
-                        DiscordTokenStore.init(applicationContext)
-                        DiscordTokenStore.storeFull(
-                            accessToken = discordAccessToken,
-                            refreshToken = discordRefreshToken ?: "",
-                            expiresInSec = if (discordExpiresAt > 0) {
-                                (discordExpiresAt - (System.currentTimeMillis() / 1000L)).coerceAtLeast(0L)
-                            } else 0L
-                        )
-                        // If not ready, initialize RPC
-                        if (!DiscordRpcManager.isInitialized()) {
-                            DiscordRpcManager.init(applicationContext)
-                        } else if (!DiscordRpcManager.isReady()) {
-                            DiscordRpcManager.reconnectWithToken(discordAccessToken)
+                        safeDataStoreEdit { settings ->
+                            settings[InnerTubeCookieKey] = cookie
+                            visitorData?.let { settings[VisitorDataKey] = it }
+                            dataSyncId?.let { settings[DataSyncIdKey] = it }
+                            authUser?.let { settings[InnerTubeAuthUserKey] = it }
+                            accountName?.let { settings[AccountNameKey] = it }
+                            accountEmail?.let { settings[AccountEmailKey] = it }
+                            accountHandle?.let { settings[AccountChannelHandleKey] = it }
                         }
+                        Timber.d("WearAuthListenerService: Auth data updated from mobile")
                     }
                 }
-                
-                if (cookie != null && visitorData != null && dataSyncId != null) {
-                    Timber.d("WearAuthListenerService: Received auth sync data, finalizing login...")
-                    scope.launch {
-                        LoginHelper.finalizeLogin(
-                            context = applicationContext,
-                            cookie = cookie,
-                            visitorData = visitorData,
-                            dataSyncId = dataSyncId,
-                            authUser = authUser
-                        )
+            }
+        }
+    }
+
+    override fun onChannelOpened(channel: ChannelClient.Channel) {
+        if (channel.path == WEAR_UPDATE_CHANNEL_PATH) {
+            Timber.d("WearAuthListenerService: Received update channel from mobile")
+            val channelClient = Wearable.getChannelClient(this)
+            val file = File(externalCacheDir ?: cacheDir, "update.apk")
+            if (file.exists()) file.delete()
+            val fileUri = Uri.fromFile(file)
+
+            scope.launch {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(applicationContext, R.string.ota_downloading, Toast.LENGTH_SHORT).show()
+                }
+                try {
+                    channelClient.receiveFile(channel, fileUri, false).await()
+                    Timber.d("WearAuthListenerService: Received update APK from mobile (${file.length()} bytes)")
+                    withContext(Dispatchers.Main) {
+                        OTAUpdater.installApk(applicationContext, file)
                     }
-                } else {
-                    Timber.d("WearAuthListenerService: Received incomplete auth data (possibly logout)")
-                    // If we want to support logout sync, we could call a logout helper here
+                } catch (e: Exception) {
+                    Timber.e(e, "WearAuthListenerService: Failed to receive update APK from mobile")
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(applicationContext, getString(R.string.ota_error, e.message ?: "Unknown error"), Toast.LENGTH_LONG).show()
+                    }
                 }
             }
         }

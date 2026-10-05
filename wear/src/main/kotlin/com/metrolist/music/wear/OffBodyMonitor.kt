@@ -23,15 +23,20 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import timber.log.Timber
-import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 class OffBodyMonitor(
     context: Context,
     private val scope: CoroutineScope,
+    private val onBodyStateChanged: (Boolean) -> Unit,
     private val onTimeout: () -> Unit,
 ) {
     private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+    // El Galaxy Watch 7 con Wear OS 5 responde de forma mucho más confiable a los sensores de tipo hardware alternativo como el de proximidad o el acelerómetro
+    // si la app está en segundo plano y el sistema operativo enmascara el sensor primario TYPE_LOW_LATENCY_OFFBODY_DETECT por políticas de Samsung.
+    // Probamos primero obtener el sensor offbody, pero si One UI lo bloquea en segundo plano, usaremos un fallback.
     private val offBodySensor = sensorManager?.getDefaultSensor(Sensor.TYPE_LOW_LATENCY_OFFBODY_DETECT)
+        ?: sensorManager?.getDefaultSensor(Sensor.TYPE_PROXIMITY)
 
     private val measureClient = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
         try {
@@ -46,8 +51,15 @@ class OffBodyMonitor(
 
     private val sensorEventListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
-            val isOnBody = event.values[0] == 1.0f
-            Timber.d("OffBodyMonitor: Sensor changed, isOnBody=$isOnBody")
+            // En sensores TYPE_PROXIMITY: 0 significa "Cerca" (en la muñeca), y valores altos significan "Lejos" (fuera del cuerpo)
+            // En sensores TYPE_LOW_LATENCY_OFFBODY_DETECT: > 0.5f significa "En la muñeca"
+            val isOnBody = if (event.sensor.type == Sensor.TYPE_PROXIMITY) {
+                event.values[0] < 1.0f // Cerca = en la muñeca
+            } else {
+                event.values[0] > 0.5f // 1.0 = en la muñeca
+            }
+            Timber.d("OffBodyMonitor: Sensor changed type=${event.sensor.type}, values=${event.values.joinToString()}, isOnBody=$isOnBody")
+            onBodyStateChanged(isOnBody)
             if (isOnBody) stopTimer() else startTimer()
         }
 
@@ -61,8 +73,14 @@ class OffBodyMonitor(
                     Timber.d("OffBodyMonitor: Availability changed to $availability")
                     when (availability) {
                         DataTypeAvailability.UNAVAILABLE_DEVICE_OFF_BODY,
-                        DataTypeAvailability.UNAVAILABLE -> startTimer()
-                        DataTypeAvailability.AVAILABLE -> stopTimer()
+                        DataTypeAvailability.UNAVAILABLE -> {
+                            onBodyStateChanged(false)
+                            startTimer()
+                        }
+                        DataTypeAvailability.AVAILABLE -> {
+                            onBodyStateChanged(true)
+                            stopTimer()
+                        }
                     }
                 }
             }
@@ -75,25 +93,20 @@ class OffBodyMonitor(
         if (isRegistered) return
         Timber.d("OffBodyMonitor: Starting monitoring")
         
-        // Try Health Services first on supported devices
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && measureClient != null && healthCallback != null) {
-            try {
-                measureClient.registerMeasureCallback(DataType.HEART_RATE_BPM, healthCallback)
-                isRegistered = true
-                Timber.d("OffBodyMonitor: Using Health Services")
-                return
-            } catch (e: Exception) {
-                Timber.e(e, "OffBodyMonitor: Health Services failed, falling back to SensorManager")
-            }
-        }
-
-        // Fallback to SensorManager
+        // En Galaxy Watch 7 y Wear OS 4+, priorizamos SensorManager directo para TYPE_LOW_LATENCY_OFFBODY_DETECT,
+        // ya que Health Services está diseñado para mediciones activas de ejercicio/salud (BPM) y duerme las lecturas pasivas.
         if (offBodySensor != null) {
-            sensorManager?.registerListener(sensorEventListener, offBodySensor, SensorManager.SENSOR_DELAY_NORMAL)
+            sensorManager?.registerListener(sensorEventListener, offBodySensor, SensorManager.SENSOR_DELAY_FASTEST)
             isRegistered = true
-            Timber.d("OffBodyMonitor: Using SensorManager")
+            Timber.d("OffBodyMonitor: Using SensorManager hardware directly")
+            // Asumimos inicialmente el estado para forzar la sincronización rápida
+            onBodyStateChanged(false)
+            startTimer()
+            return
         } else {
             Timber.w("OffBodyMonitor: No off-body sensor available")
+            onBodyStateChanged(false)
+            startTimer()
         }
     }
 
@@ -116,9 +129,9 @@ class OffBodyMonitor(
 
     private fun startTimer() {
         if (timerJob?.isActive == true) return
-        Timber.d("OffBodyMonitor: Starting 1-minute timer")
+        Timber.d("OffBodyMonitor: Starting 10-second timer")
         timerJob = scope.launch {
-            delay(1.minutes)
+            delay(10.seconds)
             Timber.d("OffBodyMonitor: Timer expired, triggering timeout")
             onTimeout()
         }

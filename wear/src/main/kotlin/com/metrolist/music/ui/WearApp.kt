@@ -5,6 +5,7 @@
 
 package com.metrolist.music.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -75,11 +76,10 @@ fun WearApp() {
                         }
                     }
                 ) {
-                    Box {
-                        SwipeDismissableNavHost(
-                            navController = navController,
-                            startDestination = "player"
-                        ) {
+                    SwipeDismissableNavHost(
+                        navController = navController,
+                        startDestination = "player"
+                    ) {
                         composable("player") {
                             WearMusicPlayer(
                                 onNavigateToSearch = { navController.navigate("search") },
@@ -182,8 +182,12 @@ fun WearApp() {
                                 onNavigateToLogin = { navController.navigate("login") },
                                 onNavigateToLanguage = { navController.navigate("settings/language") },
                                 onNavigateToContentLanguage = { navController.navigate("settings/content_language") },
-                                onNavigateToContentCountry = { navController.navigate("settings/content_country") }
+                                onNavigateToContentCountry = { navController.navigate("settings/content_country") },
+                                onNavigateToSleepTimer = { navController.navigate("settings/sleep_timer") }
                             )
+                        }
+                        composable("settings/sleep_timer") {
+                            WearSleepTimerSettingsScreen()
                         }
                         composable("settings/language") {
                             WearLanguageScreen(
@@ -355,5 +359,4 @@ fun WearApp() {
             }
         }
     }
-}
 }

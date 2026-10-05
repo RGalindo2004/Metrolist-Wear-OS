@@ -18,8 +18,10 @@ import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
 import com.metrolist.music.constants.*
 import com.metrolist.music.constants.AuthSyncConstants.AUTH_REQUEST_PATH
+import com.metrolist.music.constants.AuthSyncConstants.DOWNLOAD_WEAR_APK_PATH
 import com.metrolist.music.constants.AuthSyncConstants.OPEN_LOGIN_PATH
 import com.metrolist.music.constants.AuthSyncConstants.AUTH_SYNC_PATH
+import com.metrolist.music.constants.AuthSyncConstants.WEAR_UPDATE_CHANNEL_PATH
 import com.metrolist.music.constants.AuthSyncConstants.KEY_ACCOUNT_EMAIL
 import com.metrolist.music.constants.AuthSyncConstants.KEY_ACCOUNT_HANDLE
 import com.metrolist.music.constants.AuthSyncConstants.KEY_ACCOUNT_NAME
@@ -29,6 +31,9 @@ import com.metrolist.music.constants.AuthSyncConstants.KEY_DATA_SYNC_ID
 import com.metrolist.music.constants.AuthSyncConstants.KEY_TIMESTAMP
 import com.metrolist.music.constants.AuthSyncConstants.KEY_VISITOR_DATA
 import com.metrolist.music.utils.dataStore
+import java.io.File
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -133,6 +138,59 @@ class WearAuthRequestListenerService : WearableListenerService() {
                 Timber.e(e, "Failed to start login activity from background")
                 scope.launch(Dispatchers.Main) {
                     Toast.makeText(applicationContext, "Error opening login: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        } else if (messageEvent.path == DOWNLOAD_WEAR_APK_PATH) {
+            val downloadUrl = String(messageEvent.data, Charsets.UTF_8)
+            Timber.d("WearAuthRequestListenerService: Received request to download Wear APK from $downloadUrl")
+
+            scope.launch {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(applicationContext, R.string.ota_downloading, Toast.LENGTH_SHORT).show()
+                }
+
+                val apkFile = File(applicationContext.cacheDir, "wear_update.apk")
+                if (apkFile.exists()) apkFile.delete()
+
+                try {
+                    val request = Request.Builder().url(downloadUrl).build()
+                    val client = OkHttpClient()
+
+                    withContext(Dispatchers.IO) {
+                        client.newCall(request).execute().use { response ->
+                            if (!response.isSuccessful) throw Exception("HTTP error ${response.code}")
+                            val body = response.body ?: throw Exception("Response body is null")
+                            body.byteStream().use { input ->
+                                apkFile.outputStream().use { output ->
+                                    input.copyTo(output)
+                                }
+                            }
+                        }
+                    }
+
+                    if (!apkFile.exists() || apkFile.length() == 0L) {
+                        throw Exception("Downloaded file is empty")
+                    }
+
+                    Timber.d("WearAuthRequestListenerService: Downloaded Wear APK (${apkFile.length()} bytes), sending via channel to ${messageEvent.sourceNodeId}")
+
+                    val channelClient = Wearable.getChannelClient(this@WearAuthRequestListenerService)
+                    val channel = channelClient.openChannel(
+                        messageEvent.sourceNodeId,
+                        WEAR_UPDATE_CHANNEL_PATH
+                    ).await()
+
+                    channelClient.sendFile(channel, Uri.fromFile(apkFile)).await()
+                    Timber.d("WearAuthRequestListenerService: Wear update APK sent successfully")
+
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(applicationContext, R.string.wear_update_sent, Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Exception) {
+                    Timber.e(e, "WearAuthRequestListenerService: Failed to download or send Wear update APK")
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(applicationContext, applicationContext.getString(R.string.ota_error, e.message ?: "Unknown error"), Toast.LENGTH_LONG).show()
+                    }
                 }
             }
         }

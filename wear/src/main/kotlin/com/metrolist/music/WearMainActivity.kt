@@ -45,6 +45,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import timber.log.Timber
@@ -139,13 +140,18 @@ class WearMainActivity : ComponentActivity() {
                     .distinctUntilChanged()
             }.collectAsStateWithLifecycle(initialValue = false)
 
+            val isOffBody by remember(playerConnectionSnapshot) {
+                playerConnectionSnapshot?.isOffBody ?: MutableStateFlow(false)
+            }.collectAsStateWithLifecycle(initialValue = false)
+
             CompositionLocalProvider(
                 LocalDatabase provides database,
                 LocalPlayerConnection provides playerConnectionSnapshot,
                 LocalDownloadUtil provides downloadUtil,
                 LocalSyncUtils provides syncUtils,
                 LocalListenTogetherManager provides listenTogetherManager,
-                LocalBatterySaverMode provides batterySaverMode
+                LocalBatterySaverMode provides batterySaverMode,
+                LocalOffBodyState provides isOffBody
             ) {
                 WearApp()
             }

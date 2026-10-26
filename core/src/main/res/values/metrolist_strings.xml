@@ -787,6 +787,11 @@
     <string name="column_label">Column %d</string>
 
     <string name="discord_connect_description">Sign in with Discord to share what you\'re listening to</string>
+    <string name="link_discord" tools:ignore="MissingTranslation">Link with Discord</string>
+    <string name="link_discord_token" tools:ignore="MissingTranslation">Link Discord with Token</string>
+    <string name="error_phone_not_connected" tools:ignore="MissingTranslation">Phone not connected. Make sure your watch is connected to your phone.</string>
+    <string name="discord_linked_success" tools:ignore="MissingTranslation">Discord linked successfully!</string>
+    <string name="discord_token_helper" tools:ignore="MissingTranslation">Paste your Discord token to enable Rich Presence.</string>
     <string name="discord_information_warning">Metrolist uses Discord\'s public OAuth2 and Gateway APIs to share what you\'re listening to. Authorization happens through a local browser session that closes itself after capturing the code — nothing is sent to third-party servers. Your token is stored on this device in encrypted preferences and is never shared. Metrolist connects directly to wss://gateway.discord.gg to publish your activity, and only requests the minimum scope required (sdk.social_layer_presence).</string>
     <string name="discord_status_connected">Connected</string>
     <string name="discord_status_authorizing">Authorizing…</string>

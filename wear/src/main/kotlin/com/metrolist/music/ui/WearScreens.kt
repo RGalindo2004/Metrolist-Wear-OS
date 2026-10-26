@@ -96,6 +96,8 @@ import com.metrolist.music.db.entities.Playlist
 import com.metrolist.music.db.entities.PlaylistSong
 import com.metrolist.music.db.entities.Song
 import com.metrolist.music.db.entities.Album
+import com.metrolist.music.discord.DiscordRpcManager
+import com.metrolist.music.discord.DiscordTokenStore
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.extensions.tryOrNull
 import com.metrolist.music.models.toMediaMetadata
@@ -116,6 +118,7 @@ import com.metrolist.music.viewmodels.WearHomeViewModel
 import com.metrolist.music.viewmodels.WearHistoryViewModel
 import com.metrolist.music.viewmodels.WearLibraryViewModel
 import com.metrolist.music.wear.BuildConfig
+import com.metrolist.music.wear.WearDiscordAuthCoordinator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -692,7 +695,7 @@ fun WearSearchScreen(
 }
 
 
-private enum class LoginMode { None, Token, BackupRestore }
+enum class LoginMode { None, Token, BackupRestore, DiscordToken }
 
 private const val SETTINGS_FILENAME = "settings.preferences_pb"
 
@@ -817,14 +820,14 @@ private fun parseMultipartFileBytes(inputStream: InputStream, contentLength: Lon
 
 @OptIn(ExperimentalHorologistApi::class)
 @Composable
-fun WearLoginScreen() {
+fun WearLoginScreen(initialMode: LoginMode = LoginMode.None) {
     val context = LocalContext.current
     val database = LocalDatabase.current
     val coroutineScope = rememberCoroutineScope()
     val columnState = rememberResponsiveColumnState()
     val focusRequester = remember { FocusRequester() }
 
-    var loginMode by remember { mutableStateOf(LoginMode.None) }
+    var loginMode by remember { mutableStateOf(initialMode) }
     var isLoading by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var serverUrl by remember { mutableStateOf<String?>(null) }
@@ -994,6 +997,57 @@ fun WearLoginScreen() {
                             val query = if (path.contains("?")) path.substringAfter("?") else ""
                             val params = query.split("&").associate { it.substringBefore("=") to it.substringAfter("=") }
                             
+                            if (params.containsKey("discord_token") || params.containsKey("discordToken")) {
+                                val rawToken = params["discord_token"] ?: params["discordToken"] ?: ""
+                                val discordToken = java.net.URLDecoder.decode(rawToken, "UTF-8").trim().removeSurrounding("\"")
+                                if (discordToken.isNotEmpty()) {
+                                    coroutineScope.launch {
+                                        isLoading = true
+                                        statusMessage = "Vincular Discord..."
+                                        runCatching {
+                                            DiscordTokenStore.init(context)
+                                            DiscordRpcManager.init(context)
+                                            context.safeDataStoreEdit { settings ->
+                                                settings[EnableDiscordRPCKey] = true
+                                            }
+                                            DiscordRpcManager.reconnectWithToken(discordToken)
+                                            statusMessage = "¡Discord vinculado con éxito!"
+                                            delay(2500)
+                                            statusMessage = null
+                                            isLoading = false
+                                        }.onFailure { e ->
+                                            isLoading = false
+                                            statusMessage = "Error al vincular Discord: ${e.message}"
+                                        }
+                                    }
+                                }
+
+                                val response = """
+                                    <!DOCTYPE html>
+                                    <html>
+                                    <head>
+                                        <meta charset="utf-8">
+                                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                        <style>
+                                            body { font-family: sans-serif; padding: 30px; background: #121212; color: white; text-align: center; }
+                                            h1 { color: #5865F2; margin-bottom: 12px; }
+                                            p { color: #aaa; font-size: 15px; line-height: 1.5; }
+                                            .card { background: #1e1e1e; padding: 24px; border-radius: 16px; border: 1px solid #5865F2; }
+                                        </style>
+                                    </head>
+                                    <body>
+                                        <div class="card">
+                                            <h1>¡Vínculo con Discord Exitoso!</h1>
+                                            <p>Se ha enviado el token a tu reloj.<br>Discord Rich Presence ha sido cargado y activado.</p>
+                                        </div>
+                                    </body>
+                                    </html>
+                                """.trimIndent()
+                                client.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n$response".toByteArray())
+                                client.close()
+                                continue
+                            }
+
                             if (params.containsKey("cookie")) {
                                 val cookie = java.net.URLDecoder.decode(params["cookie"], "UTF-8")
                                 coroutineScope.launch {
@@ -1027,34 +1081,47 @@ fun WearLoginScreen() {
                             }
                             
                             val response = """
+                                <!DOCTYPE html>
                                 <html>
                                 <head>
+                                    <meta charset="utf-8">
                                     <meta name="viewport" content="width=device-width, initial-scale=1.0">
                                     <style>
-                                        body { font-family: sans-serif; padding: 20px; background: #121212; color: white; text-align: center; }
-                                        textarea, input[type="file"] { width: 100%; margin: 10px 0; background: #222; color: white; border: 1px solid #444; border-radius: 8px; padding: 10px; font-size: 14px; box-sizing: border-box; }
-                                        button { background: #BB86FC; color: black; border: none; padding: 12px 24px; border-radius: 20px; font-weight: bold; cursor: pointer; font-size: 16px; width: 100%; margin-top: 10px; }
-                                        h1 { color: #BB86FC; margin-bottom: 20px; }
-                                        p { color: #aaa; margin-bottom: 10px; }
-                                        .section { background: #1e1e1e; padding: 15px; border-radius: 12px; margin-bottom: 20px; text-align: left; }
+                                        body { font-family: sans-serif; padding: 20px; background: #121212; color: white; text-align: center; max-width: 500px; margin: 0 auto; }
+                                        textarea, input[type="file"] { width: 100%; margin: 8px 0; background: #222; color: white; border: 1px solid #444; border-radius: 10px; padding: 12px; font-size: 13px; font-family: monospace; box-sizing: border-box; }
+                                        button { border: none; padding: 14px 24px; border-radius: 24px; font-weight: bold; cursor: pointer; font-size: 15px; width: 100%; margin-top: 10px; }
+                                        h1 { color: #BB86FC; margin-bottom: 8px; }
+                                        p.subtitle { color: #aaa; font-size: 14px; margin-bottom: 20px; }
+                                        .section { background: #1e1e1e; padding: 18px; border-radius: 16px; margin-bottom: 20px; text-align: left; }
                                     </style>
                                 </head>
                                 <body>
                                     <h1>Metrolist Watch Setup</h1>
+                                    <p class="subtitle">Configuración y Vinculación para Reloj</p>
                                     
-                                    <div class="section">
-                                        <p><b>Opción 1: Subir archivo de Resguardo (.backup)</b><br><small style="color:#888;">Recupera Discord, configuraciones y cuenta</small></p>
-                                        <form action="/upload" method="POST" enctype="multipart/form-data">
-                                            <input type="file" name="backup" accept=".backup,.zip">
-                                            <button type="submit">RESTAURAR BACKUP</button>
+                                    <div class="section" style="border: 1px solid #5865F2;">
+                                        <p style="color:#5865F2; font-weight:bold; margin-bottom:4px; font-size:16px;">Vincular con Discord</p>
+                                        <p style="color:#aaa; font-size:12px; margin-top:0;">Pega tu token de usuario de Discord a continuación para cargar Rich Presence en tu reloj.</p>
+                                        <form action="/" method="GET">
+                                            <textarea name="discord_token" rows="3" placeholder="Pega tu token de Discord aquí..."></textarea>
+                                            <p style="color:#888; font-size:11px; margin:4px 0 10px 0;">Ejemplo: Pega tu token de usuario de Discord aquí</p>
+                                            <button type="submit" style="background:#5865F2; color:white;">CONFIRMAR Y VINCULAR DISCORD</button>
                                         </form>
                                     </div>
 
                                     <div class="section">
-                                        <p><b>Opción 2: Pegar Cookie de InnerTube</b></p>
+                                        <p style="font-weight:bold; margin-bottom:4px;">Iniciar sesión con Google (Cookie)</p>
                                         <form action="/" method="GET">
-                                            <textarea name="cookie" placeholder="Ej: VISITOR_INFO1_LIVE=...; SID=..."></textarea>
-                                            <button type="submit">INICIAR SESIÓN CON COOKIE</button>
+                                            <textarea name="cookie" rows="3" placeholder="Ej: VISITOR_INFO1_LIVE=...; SID=..."></textarea>
+                                            <button type="submit" style="background:#BB86FC; color:black;">INICIAR SESIÓN CON COOKIE</button>
+                                        </form>
+                                    </div>
+
+                                    <div class="section">
+                                        <p style="font-weight:bold; margin-bottom:4px;">Restaurar Resguardo (.backup)</p>
+                                        <form action="/upload" method="POST" enctype="multipart/form-data">
+                                            <input type="file" name="backup" accept=".backup,.zip">
+                                            <button type="submit" style="background:#03DAC6; color:black;">RESTAURAR BACKUP</button>
                                         </form>
                                     </div>
                                 </body>
@@ -1110,8 +1177,25 @@ fun WearLoginScreen() {
                     item {
                         Chip(
                             onClick = { loginMode = LoginMode.Token },
-                            label = { Text("Browser Login") },
+                            label = { Text("Browser Login (Google)") },
                             icon = { Icon(painterResource(R.drawable.sync), null) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    item {
+                        Chip(
+                            onClick = {
+                                coroutineScope.launch {
+                                    val nodes = runCatching { Wearable.getNodeClient(context).connectedNodes.await() }.getOrDefault(emptyList())
+                                    if (nodes.isEmpty()) {
+                                        statusMessage = context.resources.getString(R.string.error_phone_not_connected)
+                                    } else {
+                                        loginMode = LoginMode.DiscordToken
+                                    }
+                                }
+                            },
+                            label = { Text(stringResource(R.string.link_discord)) },
+                            icon = { Icon(painterResource(R.drawable.discord), null) },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -1124,10 +1208,16 @@ fun WearLoginScreen() {
                         )
                     }
                 }
-                LoginMode.Token, LoginMode.BackupRestore -> {
+                LoginMode.Token, LoginMode.BackupRestore, LoginMode.DiscordToken -> {
                     item {
                         Text(
-                            text = if (serverUrl != null) (if (loginMode == LoginMode.BackupRestore) "Abre este enlace para restaurar tu backup:" else "Abre este enlace en tu celular:") else "Iniciando servidor...",
+                            text = if (serverUrl != null) {
+                                when (loginMode) {
+                                    LoginMode.DiscordToken -> "Abre este enlace en tu celular para vincular Discord:"
+                                    LoginMode.BackupRestore -> "Abre este enlace para restaurar tu backup:"
+                                    else -> "Abre este enlace en tu celular:"
+                                }
+                            } else "Iniciando servidor...",
                             style = MaterialTheme.typography.caption2,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.padding(top = 16.dp, start = 16.dp, end = 16.dp)
@@ -2173,6 +2263,7 @@ fun WearSongChip(
 @Composable
 fun WearSettingsScreen(
     onNavigateToLogin: () -> Unit = {},
+    onNavigateToDiscordLogin: () -> Unit = {},
     onNavigateToLanguage: () -> Unit = {},
     onNavigateToContentLanguage: () -> Unit = {},
     onNavigateToContentCountry: () -> Unit = {},
@@ -2190,6 +2281,8 @@ fun WearSettingsScreen(
     var skipSilence by rememberPreference(key = SkipSilenceKey, defaultValue = false)
     var stopMusicOnTaskClear by rememberPreference(key = StopMusicOnTaskClearKey, defaultValue = true)
     var batterySaverMode by rememberPreference(key = BatterySaverModeKey, defaultValue = false)
+    var pauseOnOffBody by rememberPreference(key = PauseOnOffBodyKey, defaultValue = false)
+    var enableDiscordRpc by rememberPreference(key = EnableDiscordRPCKey, defaultValue = false)
     
     var crossfadeDuration by rememberPreference(key = CrossfadeDurationKey, defaultValue = 5f)
     var crossfadeGapless by rememberPreference(key = CrossfadeGaplessKey, defaultValue = true)
@@ -2201,6 +2294,29 @@ fun WearSettingsScreen(
     val contentLanguage by rememberPreference(key = ContentLanguageKey, defaultValue = SYSTEM_DEFAULT)
     val contentCountry by rememberPreference(key = ContentCountryKey, defaultValue = SYSTEM_DEFAULT)
 
+    val backgroundSensorPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        pauseOnOffBody = granted
+    }
+    val bodySensorPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            pauseOnOffBody = false
+        } else if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.BODY_SENSORS_BACKGROUND,
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            backgroundSensorPermissionLauncher.launch(android.Manifest.permission.BODY_SENSORS_BACKGROUND)
+        } else {
+            pauseOnOffBody = true
+        }
+    }
+
     val accountName by remember(context) {
         context.dataStore.data.map { it[AccountNameKey] ?: it[AccountEmailKey] }
     }.collectAsStateWithLifecycle(initialValue = null)
@@ -2208,6 +2324,18 @@ fun WearSettingsScreen(
     val accountPhoto by remember(context) {
         context.dataStore.data.map { it[AccountPhotoKey] }
     }.collectAsStateWithLifecycle(initialValue = null)
+
+    val discordStatus by DiscordRpcManager.connectionStatus.collectAsStateWithLifecycle()
+    val discordUser by DiscordRpcManager.currentUser.collectAsStateWithLifecycle()
+    val waitingForPhone by WearDiscordAuthCoordinator.waitingForPhone.collectAsStateWithLifecycle()
+
+    LaunchedEffect(context) {
+        val preferences = context.dataStore.data.first()
+        if (preferences[EnableDiscordRPCKey] == null && !preferences[DiscordUsernameKey].isNullOrBlank()) {
+            context.safeDataStoreEdit { it[EnableDiscordRPCKey] = true }
+        }
+        DiscordRpcManager.init(context)
+    }
 
     ScalingLazyColumn(
         columnState = columnState,
@@ -2245,6 +2373,67 @@ fun WearSettingsScreen(
             )
         }
 
+        item { ListHeader { Text(stringResource(R.string.discord_integration), style = MaterialTheme.typography.caption2) } }
+        item {
+            ToggleChip(
+                checked = enableDiscordRpc,
+                onCheckedChange = { enabled ->
+                    enableDiscordRpc = enabled
+                    if (!enabled) {
+                        DiscordRpcManager.disconnect()
+                    } else {
+                        DiscordRpcManager.getAccessToken()?.let(DiscordRpcManager::reconnectWithToken)
+                    }
+                },
+                label = { Text(stringResource(R.string.enable_discord_rpc)) },
+                toggleControl = { Checkbox(checked = enableDiscordRpc) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (enableDiscordRpc) {
+            item {
+                Chip(
+                    onClick = {
+                        coroutineScope.launch {
+                            val nodes = runCatching { Wearable.getNodeClient(context).connectedNodes.await() }.getOrDefault(emptyList())
+                            if (nodes.isEmpty()) {
+                                Toast.makeText(context, R.string.error_phone_not_connected, Toast.LENGTH_LONG).show()
+                            } else {
+                                if (DiscordRpcManager.getAccessToken() != null) {
+                                    DiscordRpcManager.reconnectWithToken(DiscordRpcManager.getAccessToken()!!)
+                                } else {
+                                    onNavigateToDiscordLogin()
+                                }
+                            }
+                        }
+                    },
+                    label = { Text(discordUser?.name ?: stringResource(R.string.link_discord)) },
+                    secondaryLabel = {
+                        Text(
+                            when {
+                                waitingForPhone || discordStatus == DiscordRpcManager.Status.Authorizing ->
+                                    stringResource(R.string.discord_status_authorizing)
+                                discordStatus == DiscordRpcManager.Status.Connected ->
+                                    stringResource(R.string.discord_status_connected)
+                                else -> stringResource(R.string.discord_connect_description)
+                            },
+                        )
+                    },
+                    icon = { Icon(painterResource(R.drawable.discord), contentDescription = null) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            if (DiscordRpcManager.getAccessToken() != null) {
+                item {
+                    Chip(
+                        onClick = { DiscordRpcManager.logout() },
+                        label = { Text(stringResource(R.string.action_logout)) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+
         item { ListHeader { Text(stringResource(R.string.app_language), style = MaterialTheme.typography.caption2) } }
         item {
             Chip(
@@ -2278,6 +2467,33 @@ fun WearSettingsScreen(
                 label = { Text(stringResource(R.string.sleep_timer)) },
                 secondaryLabel = { Text(if (sleepTimerEnabled) "Activado" else "Desactivado") },
                 icon = { Icon(painterResource(R.drawable.timer), null) },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        item {
+            ToggleChip(
+                checked = pauseOnOffBody,
+                onCheckedChange = { enabled ->
+                    when {
+                        !enabled -> pauseOnOffBody = false
+                        ContextCompat.checkSelfPermission(
+                            context,
+                            android.Manifest.permission.BODY_SENSORS,
+                        ) != android.content.pm.PackageManager.PERMISSION_GRANTED -> {
+                            bodySensorPermissionLauncher.launch(android.Manifest.permission.BODY_SENSORS)
+                        }
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            ContextCompat.checkSelfPermission(
+                                context,
+                                android.Manifest.permission.BODY_SENSORS_BACKGROUND,
+                            ) != android.content.pm.PackageManager.PERMISSION_GRANTED -> {
+                            backgroundSensorPermissionLauncher.launch(android.Manifest.permission.BODY_SENSORS_BACKGROUND)
+                        }
+                        else -> pauseOnOffBody = true
+                    }
+                },
+                label = { Text(stringResource(R.string.off_body_app_close)) },
+                toggleControl = { Checkbox(checked = pauseOnOffBody) },
                 modifier = Modifier.fillMaxWidth()
             )
         }

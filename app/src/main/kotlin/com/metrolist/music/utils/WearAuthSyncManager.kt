@@ -18,6 +18,8 @@ import com.metrolist.music.constants.AuthSyncConstants.KEY_COOKIE
 import com.metrolist.music.constants.AuthSyncConstants.KEY_DATA_SYNC_ID
 import com.metrolist.music.constants.AuthSyncConstants.KEY_TIMESTAMP
 import com.metrolist.music.constants.AuthSyncConstants.KEY_VISITOR_DATA
+import com.metrolist.music.constants.AuthSyncConstants.KEY_DISCORD_TOKEN
+import com.metrolist.music.discord.DiscordTokenStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
@@ -45,6 +47,8 @@ class WearAuthSyncManager(
                 context.dataStore.data.map { it[AccountEmailKey] }.distinctUntilChanged(),
                 context.dataStore.data.map { it[AccountChannelHandleKey] }.distinctUntilChanged()
             ) { values ->
+                DiscordTokenStore.init(context)
+                val discordToken = DiscordTokenStore.retrieve()
                 AuthData(
                     cookie = values[0] as String?,
                     visitorData = values[1] as String?,
@@ -52,7 +56,8 @@ class WearAuthSyncManager(
                     authUser = values[3] as String?,
                     accountName = values[4] as String?,
                     accountEmail = values[5] as String?,
-                    accountHandle = values[6] as String?
+                    accountHandle = values[6] as String?,
+                    discordToken = discordToken
                 )
             }.collect { authData ->
                 syncToWearable(authData)
@@ -61,8 +66,8 @@ class WearAuthSyncManager(
     }
 
     private suspend fun syncToWearable(authData: AuthData) {
-        if (authData.cookie == null) {
-            Timber.d("WearAuthSyncManager: No cookie to sync, or logged out")
+        if (authData.cookie == null && authData.discordToken == null) {
+            Timber.d("WearAuthSyncManager: No cookie or discord token to sync")
         }
 
         try {
@@ -74,6 +79,7 @@ class WearAuthSyncManager(
                 authData.accountName?.let { dataMap.putString(KEY_ACCOUNT_NAME, it) }
                 authData.accountEmail?.let { dataMap.putString(KEY_ACCOUNT_EMAIL, it) }
                 authData.accountHandle?.let { dataMap.putString(KEY_ACCOUNT_HANDLE, it) }
+                authData.discordToken?.let { dataMap.putString(KEY_DISCORD_TOKEN, it) }
                 dataMap.putLong(KEY_TIMESTAMP, System.currentTimeMillis())
                 setUrgent()
             }.asPutDataRequest()
@@ -92,6 +98,7 @@ class WearAuthSyncManager(
         val authUser: String?,
         val accountName: String?,
         val accountEmail: String?,
-        val accountHandle: String?
+        val accountHandle: String?,
+        val discordToken: String?
     )
 }

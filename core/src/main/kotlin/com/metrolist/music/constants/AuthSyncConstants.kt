@@ -11,6 +11,7 @@ object AuthSyncConstants {
     const val OPEN_LOGIN_PATH = "/open_login"
     const val DOWNLOAD_WEAR_APK_PATH = "/download_wear_apk"
     const val WEAR_UPDATE_CHANNEL_PATH = "/wear_update_channel"
+    const val DISCORD_AUTH_CALLBACK_PATH = "/discord_auth_callback"
     
     const val KEY_COOKIE = "cookie"
     const val KEY_VISITOR_DATA = "visitorData"
@@ -20,4 +21,8 @@ object AuthSyncConstants {
     const val KEY_ACCOUNT_EMAIL = "accountEmail"
     const val KEY_ACCOUNT_HANDLE = "accountChannelHandle"
     const val KEY_TIMESTAMP = "timestamp"
+    const val KEY_DISCORD_CODE = "discordCode"
+    const val KEY_DISCORD_STATE = "discordState"
+    const val KEY_DISCORD_ERROR = "discordError"
+    const val KEY_DISCORD_TOKEN = "discordToken"
 }

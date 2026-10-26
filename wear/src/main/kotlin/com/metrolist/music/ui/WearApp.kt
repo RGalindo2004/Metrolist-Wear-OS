@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
@@ -27,6 +28,7 @@ import androidx.wear.compose.navigation.SwipeDismissableNavHost
 import androidx.wear.compose.navigation.composable
 import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
 import com.metrolist.music.LocalBatterySaverMode
+import com.metrolist.music.LocalOffBodyState
 import com.metrolist.music.core.R
 import com.metrolist.music.constants.AppLanguageKey
 import com.metrolist.music.constants.ContentCountryKey
@@ -60,11 +62,31 @@ val LocalWearSongMenuState = compositionLocalOf { WearSongMenuState() }
 fun WearApp() {
     val navController = rememberSwipeDismissableNavController()
     val batterySaver = LocalBatterySaverMode.current
+    val isOffBody = LocalOffBodyState.current
     val songMenuState = remember { WearSongMenuState() }
     var showWelcome by remember { mutableStateOf(true) }
 
+    val colors =
+        if (isOffBody) {
+            MaterialTheme.colors.copy(
+                primary = Color(0xFFFFD54F),
+                primaryVariant = Color(0xFFFFB300),
+                secondary = Color(0xFFFFE082),
+                secondaryVariant = Color(0xFF6D4C00),
+                background = Color(0xFF2B2100),
+                surface = Color(0xFF4A3600),
+                onPrimary = Color(0xFF2B2100),
+                onSecondary = Color(0xFF2B2100),
+                onBackground = Color(0xFFFFD54F),
+                onSurface = Color(0xFFFFE082),
+                onSurfaceVariant = Color(0xFFFFC107),
+            )
+        } else {
+            MaterialTheme.colors
+        }
+
     CompositionLocalProvider(LocalWearSongMenuState provides songMenuState) {
-        MaterialTheme {
+        MaterialTheme(colors = colors) {
             if (showWelcome) {
                 WearWelcomeScreen(onTimeout = { showWelcome = false })
             } else {
@@ -174,12 +196,23 @@ fun WearApp() {
                                 }
                             )
                         }
-                        composable("login") {
-                            WearLoginScreen()
+                        composable(
+                            route = "login?mode={mode}",
+                            arguments = listOf(navArgument("mode") { defaultValue = "none" })
+                        ) { backStackEntry ->
+                            val modeStr = backStackEntry.arguments?.getString("mode")
+                            val initialMode = when (modeStr) {
+                                "discord" -> LoginMode.DiscordToken
+                                "token" -> LoginMode.Token
+                                "backup" -> LoginMode.BackupRestore
+                                else -> LoginMode.None
+                            }
+                            WearLoginScreen(initialMode = initialMode)
                         }
                         composable("settings") {
                             WearSettingsScreen(
                                 onNavigateToLogin = { navController.navigate("login") },
+                                onNavigateToDiscordLogin = { navController.navigate("login?mode=discord") },
                                 onNavigateToLanguage = { navController.navigate("settings/language") },
                                 onNavigateToContentLanguage = { navController.navigate("settings/content_language") },
                                 onNavigateToContentCountry = { navController.navigate("settings/content_country") },

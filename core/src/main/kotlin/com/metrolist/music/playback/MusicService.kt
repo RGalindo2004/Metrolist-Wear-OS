@@ -118,6 +118,22 @@ import com.metrolist.music.constants.CrossfadeDurationKey
 import com.metrolist.music.constants.CrossfadeEnabledKey
 import com.metrolist.music.constants.CrossfadeGaplessKey
 import com.metrolist.music.constants.DisableLoadMoreWhenRepeatAllKey
+import com.metrolist.music.constants.DiscordActivityNameKey
+import com.metrolist.music.constants.DiscordActivityTypeKey
+import com.metrolist.music.constants.DiscordAdvancedModeKey
+import com.metrolist.music.constants.DiscordButton1EnabledKey
+import com.metrolist.music.constants.DiscordButton1LabelKey
+import com.metrolist.music.constants.DiscordButton1UrlKey
+import com.metrolist.music.constants.DiscordButton2EnabledKey
+import com.metrolist.music.constants.DiscordButton2LabelKey
+import com.metrolist.music.constants.DiscordButton2UrlKey
+import com.metrolist.music.constants.DiscordDetailsTemplateKey
+import com.metrolist.music.constants.DiscordNameKey
+import com.metrolist.music.constants.DiscordStateTemplateKey
+import com.metrolist.music.constants.DiscordUsernameKey
+import com.metrolist.music.constants.DiscordAvatarKey
+import com.metrolist.music.constants.DiscordUserStatusKey
+import com.metrolist.music.constants.EnableDiscordRPCKey
 import com.metrolist.music.constants.EnableLastFMScrobblingKey
 import com.metrolist.music.constants.EnableSongCacheKey
 import com.metrolist.music.constants.HideExplicitKey
@@ -132,6 +148,7 @@ import com.metrolist.music.constants.MediaSessionConstants.CommandToggleShuffle
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleStartRadio
 import com.metrolist.music.constants.PauseListenHistoryKey
 import com.metrolist.music.constants.PauseOnMute
+import com.metrolist.music.constants.PauseOnOffBodyKey
 import com.metrolist.music.constants.PersistentQueueKey
 import com.metrolist.music.constants.PersistentShuffleAcrossQueuesKey
 import com.metrolist.music.constants.PlayerVolumeKey
@@ -156,6 +173,11 @@ import com.metrolist.music.db.entities.LyricsEntity
 import com.metrolist.music.db.entities.PlaylistEntity
 import com.metrolist.music.db.entities.RelatedSongMap
 import com.metrolist.music.db.entities.Song
+import com.metrolist.music.discord.DiscordActivity
+import com.metrolist.music.discord.DiscordActivityBuilder
+import com.metrolist.music.discord.DiscordDefaults
+import com.metrolist.music.discord.DiscordRpcManager
+import com.metrolist.music.discord.PresenceStatus
 import com.metrolist.music.di.DownloadCache
 import com.metrolist.music.di.PlayerCache
 import com.metrolist.music.eq.EqualizerService
@@ -399,6 +421,10 @@ class MusicService :
     private val _playerFlow = MutableStateFlow<ExoPlayer?>(null)
     val playerFlow = _playerFlow.asStateFlow()
 
+    private val _isOffBody = MutableStateFlow(false)
+    val isOffBody = _isOffBody.asStateFlow()
+    private var offBodyMonitor: OffBodyMonitor? = null
+
     private val playerSilenceProcessors = HashMap<Player, SilenceDetectorAudioProcessor>()
 
     private val instantSilenceSkipEnabled = MutableStateFlow(false)
@@ -421,6 +447,9 @@ class MusicService :
     private var cachedNormalizationEnabled: Boolean = false
 
     private var lastPlaybackSpeed = 1.0f
+
+    @Volatile
+    private var discordRpcEnabled = false
 
     @Volatile
     private var latestMediaNotification: Notification? = null
@@ -644,6 +673,8 @@ class MusicService :
 
         playerInitialized.value = true
         Timber.tag(TAG).d("Player successfully initialized")
+
+        observeOffBodyPreference()
 
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         setupAudioFocusRequest()
@@ -951,6 +982,40 @@ class MusicService :
 
                 Timber.tag("MusicService").i("Player recreated with AudioTrackPlaybackParams: $useAudioTrackParams")
             }
+
+        DiscordRpcManager.init(this@MusicService)
+
+        dataStore.data
+            .map { preferences ->
+                preferences[EnableDiscordRPCKey]
+                    ?: !preferences[DiscordUsernameKey].isNullOrBlank()
+            }
+            .debounce(300)
+            .distinctUntilChanged()
+            .collect(scope) { enabled ->
+                discordRpcEnabled = enabled
+                if (enabled) {
+                    DiscordRpcManager.getAccessToken()?.let(DiscordRpcManager::reconnectWithToken)
+                } else {
+                    DiscordRpcManager.clear()
+                    DiscordRpcManager.disconnect()
+                }
+            }
+
+        DiscordRpcManager.connectionStatus.collectLatest(scope) { status ->
+            if (status == DiscordRpcManager.Status.Connected && discordRpcEnabled) {
+                syncDiscordState()
+            }
+        }
+
+        DiscordRpcManager.currentUser.collectLatest(scope) { user ->
+            user ?: return@collectLatest
+            safeDataStoreEdit { preferences ->
+                preferences[DiscordUsernameKey] = user.username
+                preferences[DiscordNameKey] = user.name
+                user.avatar?.let { preferences[DiscordAvatarKey] = it }
+            }
+        }
 
         dataStore.data
             .map { it[EnableLastFMScrobblingKey] ?: false }
@@ -2613,6 +2678,14 @@ class MusicService :
         if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED)) {
             scrobbleManager?.onPlayerStateChanged(player.isPlaying, player.currentMetadata, duration = player.duration)
         }
+
+        if (events.containsAny(
+                Player.EVENT_MEDIA_ITEM_TRANSITION,
+                Player.EVENT_IS_PLAYING_CHANGED,
+            )
+        ) {
+            syncDiscordState()
+        }
     }
 
     override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
@@ -2700,6 +2773,11 @@ class MusicService :
 
     override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
         super.onPlaybackParametersChanged(playbackParameters)
+        if (playbackParameters.speed != lastPlaybackSpeed) {
+            lastPlaybackSpeed = playbackParameters.speed
+            DiscordRpcManager.notifySettingsChanged()
+            syncDiscordState()
+        }
     }
 
     /**
@@ -3825,8 +3903,72 @@ class MusicService :
             false
         }
 
+    private fun syncDiscordState() {
+        if (!discordRpcEnabled || !DiscordRpcManager.isReady()) return
+
+        val songId = player.currentMetadata?.id
+        if (songId == null) {
+            DiscordRpcManager.clear()
+            return
+        }
+        if (DiscordRpcManager.isShowingSong(songId, player.isPlaying)) return
+
+        scope.launch(Dispatchers.IO) {
+            val song = database.song(songId).first() ?: return@launch
+            updateDiscordPresence(song)
+        }
+    }
+
+    private suspend fun updateDiscordPresence(song: Song) {
+        if (!discordRpcEnabled || !DiscordRpcManager.isReady()) return
+
+        val (position, speed, isPlaying) = withContext(Dispatchers.Main.immediate) {
+            Triple(player.currentPosition, player.playbackParameters.speed, player.isPlaying)
+        }
+        val now = System.currentTimeMillis()
+        val startTime = if (isPlaying) now - (position / speed).toLong() else 0L
+        val remaining = (song.song.duration * 1000L - position).coerceAtLeast(0L)
+        val endTime = if (isPlaying && song.song.duration > 0) now + (remaining / speed).toLong() else null
+        val artistName = song.artists.joinToString { it.name }.ifEmpty { DiscordDefaults.UNKNOWN_ARTIST }
+        val albumName = song.album?.title
+        val songTitle = if (speed == 1.0f) song.song.title else "${song.song.title} [${String.format("%.2fx", speed)}]"
+        val advancedMode = dataStore.get(DiscordAdvancedModeKey, false)
+
+        val activity = DiscordActivityBuilder.build(
+            song = song,
+            artistName = artistName,
+            albumName = albumName,
+            artistThumbnail = song.artists.firstOrNull()?.thumbnailUrl,
+            songTitle = songTitle,
+            startTimestamp = startTime,
+            endTimestamp = endTime,
+            advancedMode = advancedMode,
+            activityType = dataStore.get(DiscordActivityTypeKey, DiscordDefaults.ACTIVITY_TYPE)
+                .toIntOrNull() ?: DiscordActivity.TYPE_LISTENING,
+            activityName = dataStore.get(DiscordActivityNameKey, DiscordDefaults.ACTIVITY_NAME),
+            stateTemplate = dataStore.get(DiscordStateTemplateKey, DiscordDefaults.STATE_TEMPLATE),
+            detailsTemplate = dataStore.get(DiscordDetailsTemplateKey, DiscordDefaults.DETAILS_TEMPLATE),
+            btn1Enabled = dataStore.get(DiscordButton1EnabledKey, true),
+            btn1Label = dataStore.get(DiscordButton1LabelKey, DiscordDefaults.BUTTON1_LABEL),
+            btn1Url = dataStore.get(DiscordButton1UrlKey, DiscordDefaults.BUTTON1_URL_TEMPLATE),
+            btn2Enabled = dataStore.get(DiscordButton2EnabledKey, true),
+            btn2Label = dataStore.get(DiscordButton2LabelKey, DiscordDefaults.BUTTON2_LABEL),
+            btn2Url = dataStore.get(DiscordButton2UrlKey, DiscordDefaults.BUTTON2_URL),
+        )
+        val status = when (dataStore.get(DiscordUserStatusKey, DiscordDefaults.USER_STATUS)) {
+            DiscordDefaults.STATUS_IDLE -> if (advancedMode) PresenceStatus.Idle else PresenceStatus.Online
+            DiscordDefaults.STATUS_DND -> if (advancedMode) PresenceStatus.Dnd else PresenceStatus.Online
+            else -> PresenceStatus.Online
+        }
+        DiscordRpcManager.setActivity(activity, song.song.id, isPlaying, status)
+    }
+
     override fun onDestroy() {
         isRunning = false
+        offBodyMonitor?.stopMonitoring()
+        offBodyMonitor = null
+        DiscordRpcManager.clear()
+        DiscordRpcManager.destroy()
 
         if (!::player.isInitialized) {
             try {
@@ -3880,6 +4022,38 @@ class MusicService :
         scope.cancel()
         super.onDestroy()
         shutdownDeferred.complete(Unit)
+    }
+
+    private fun observeOffBodyPreference() {
+        if (!isWatch) return
+
+        scope.launch {
+            dataStore.data
+                .map { preferences -> preferences[PauseOnOffBodyKey] ?: false }
+                .distinctUntilChanged()
+                .collect { enabled ->
+                    if (enabled) {
+                        val monitor =
+                            offBodyMonitor ?: OffBodyMonitor(
+                                context = this@MusicService,
+                                scope = scope,
+                                onBodyStateChanged = { isOffBody -> _isOffBody.value = isOffBody },
+                                onTimeout = {
+                                    if (player.isPlaying) player.pause()
+                                },
+                            ).also { offBodyMonitor = it }
+
+                        if (!monitor.startMonitoring()) {
+                            Timber.tag(TAG).w("Off-body detection is unavailable")
+                            monitor.stopMonitoring()
+                            offBodyMonitor = null
+                        }
+                    } else {
+                        offBodyMonitor?.stopMonitoring()
+                        offBodyMonitor = null
+                    }
+                }
+        }
     }
 
     override fun onBind(intent: Intent?) = super.onBind(intent) ?: binder

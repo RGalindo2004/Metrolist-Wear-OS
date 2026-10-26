@@ -160,6 +160,22 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
+        <activity
+            android:name=".wear.DiscordWearOAuthRelayActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.AppCompat.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="metrolistdiscord"
+                    android:host="oauth2"
+                    android:pathPrefix="/callback" />
+            </intent-filter>
+        </activity>
+
         <!-- Legacy launcher alias kept for upgrade compatibility.
              Users upgrading from older builds may have this component
              pinned as a home-screen icon. Removing it would leave a

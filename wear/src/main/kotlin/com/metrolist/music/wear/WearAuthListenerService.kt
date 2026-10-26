@@ -10,6 +10,7 @@ import android.widget.Toast
 import com.google.android.gms.wearable.ChannelClient
 import com.google.android.gms.wearable.DataEventBuffer
 import com.google.android.gms.wearable.DataMapItem
+import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
 import com.metrolist.innertube.YouTube
@@ -23,6 +24,13 @@ import com.metrolist.music.constants.AuthSyncConstants.KEY_AUTH_USER
 import com.metrolist.music.constants.AuthSyncConstants.KEY_COOKIE
 import com.metrolist.music.constants.AuthSyncConstants.KEY_DATA_SYNC_ID
 import com.metrolist.music.constants.AuthSyncConstants.KEY_VISITOR_DATA
+import com.metrolist.music.constants.AuthSyncConstants.DISCORD_AUTH_CALLBACK_PATH
+import com.metrolist.music.constants.AuthSyncConstants.KEY_DISCORD_CODE
+import com.metrolist.music.constants.AuthSyncConstants.KEY_DISCORD_ERROR
+import com.metrolist.music.constants.AuthSyncConstants.KEY_DISCORD_STATE
+import com.metrolist.music.constants.AuthSyncConstants.KEY_DISCORD_TOKEN
+import com.metrolist.music.discord.DiscordRpcManager
+import com.metrolist.music.discord.DiscordTokenStore
 import com.metrolist.music.core.R
 import com.metrolist.music.utils.OTAUpdater
 import com.metrolist.music.utils.safeDataStoreEdit
@@ -33,6 +41,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import timber.log.Timber
 
 class WearAuthListenerService : WearableListenerService() {
@@ -49,6 +58,7 @@ class WearAuthListenerService : WearableListenerService() {
                 val accountName = dataMap.getString(KEY_ACCOUNT_NAME)
                 val accountEmail = dataMap.getString(KEY_ACCOUNT_EMAIL)
                 val accountHandle = dataMap.getString(KEY_ACCOUNT_HANDLE)
+                val discordToken = dataMap.getString(KEY_DISCORD_TOKEN)
 
                 if (cookie != null) {
                     YouTube.cookie = cookie
@@ -65,7 +75,43 @@ class WearAuthListenerService : WearableListenerService() {
                         Timber.d("WearAuthListenerService: Auth data updated from mobile")
                     }
                 }
+
+                if (discordToken != null) {
+                    scope.launch {
+                        DiscordTokenStore.init(applicationContext)
+                        DiscordTokenStore.storeAccessToken(discordToken)
+                        DiscordRpcManager.init(applicationContext)
+                        DiscordRpcManager.reconnectWithToken(discordToken)
+                        safeDataStoreEdit { settings ->
+                            settings[EnableDiscordRPCKey] = true
+                        }
+                        Timber.d("WearAuthListenerService: Discord token updated from mobile")
+                    }
+                }
             }
+        }
+    }
+
+    override fun onMessageReceived(messageEvent: MessageEvent) {
+        if (messageEvent.path != DISCORD_AUTH_CALLBACK_PATH) return
+
+        val payload = runCatching { JSONObject(String(messageEvent.data, Charsets.UTF_8)) }
+            .getOrElse {
+                Timber.e(it, "Invalid Discord authorization callback")
+                return
+            }
+
+        WearDiscordAuthCoordinator.complete(
+            context = applicationContext,
+            code = payload.optString(KEY_DISCORD_CODE).takeIf(String::isNotEmpty),
+            returnedState = payload.optString(KEY_DISCORD_STATE).takeIf(String::isNotEmpty),
+            error = payload.optString(KEY_DISCORD_ERROR).takeIf(String::isNotEmpty),
+        ) { success ->
+            Toast.makeText(
+                applicationContext,
+                if (success) R.string.discord_status_authorized else R.string.discord_error_invalid_scope,
+                Toast.LENGTH_LONG,
+            ).show()
         }
     }
 
